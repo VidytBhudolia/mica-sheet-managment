@@ -71,6 +71,8 @@ export async function fetchMasterData() {
 
 export async function appendOrderLog(orderData) {
   try {
+    const unitPrice = Number(orderData.unitPrice);
+
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
       range: 'Storage!A:G',
@@ -82,14 +84,36 @@ export async function appendOrderLog(orderData) {
           orderData.buyerId,
           orderData.productId,
           Number(orderData.quantity),
-          Number(orderData.unitPrice),
+          unitPrice,
           orderData.orderId,
           orderData.notes || '',
         ]],
       },
     });
 
-    return { success: true };
+    // Update last price in SKU sheet column C
+    if (orderData.productId && unitPrice > 0) {
+      try {
+        const skuRes = await sheets.spreadsheets.values.get({
+          spreadsheetId: SPREADSHEET_ID,
+          range: 'SKU!A2:A',
+        });
+        const rows = skuRes.data.values || [];
+        const rowIndex = rows.findIndex(row => String(row[0] || '').trim() === String(orderData.productId).trim());
+        if (rowIndex !== -1) {
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `SKU!C${rowIndex + 2}`,
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[unitPrice]] },
+          });
+        }
+      } catch {
+        // Non-critical — log still saved even if price update fails
+      }
+    }
+
+    return { success: true, lastPrice: unitPrice };
   } catch (error) {
     console.error('Failed to append order log:', error);
     return { success: false, error: 'Unable to append order log.' };

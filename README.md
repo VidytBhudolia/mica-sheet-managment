@@ -1,36 +1,60 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Mica Sheet Sales Manager (Nexus B2B)
 
-## Getting Started
+Lightweight Next.js app for logging mica sheet sales and viewing analytics. Built for non-technical users who need a simple way to track orders and review performance on any device.
 
-First, run the development server:
+## Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **Data Entry** — Log sales: pick buyer, pick product, enter quantity/price, submit. Last price auto-fills.
+- **Dashboard** — Holistic view with FY + Monthly grouping, Detailed/Consolidated views, sort controls.
+- **Buyer Analytics** — Per-buyer history with searchable product filter, date range, and grouping options.
+- **Storage Logs** — Full searchable log of all entries.
+- **SKU Master** — Product catalog with tap-to-edit last price.
+- **Buyer Master** — Customer directory.
+- **Mobile Optimised** — Works well on phone with responsive tables and collapsible navigation.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Tech Stack
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Next.js 16 (App Router, single-page client component)
+- Google Sheets as database (`googleapis`)
+- Tailwind CSS 4
+- Lucide React icons
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Setup
 
-## Learn More
+1. Install:
+   ```bash
+   npm install
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+2. Create `.env`:
+   ```
+   GOOGLE_SHEET_ID=your_spreadsheet_id
+   GOOGLE_CLIENT_EMAIL=your_service_account_email
+   GOOGLE_PRIVATE_KEY=your_private_key
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. Google Sheet tabs required:
+   - **SKU** (A: Product ID, B: Description, C: Last Price)
+   - **Buyer** (A: Buyer ID, B: Company Name, C: POC, D: Contact, E: Email, F: GSTIN, G: Address)
+   - **Storage** (A: Date, B: Buyer ID, C: Product ID, D: Quantity, E: Unit Price, F: Order ID, G: Notes)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4. Run:
+   ```bash
+   npm run dev
+   ```
 
-## Deploy on Vercel
+## How It Works
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- All data is fetched from Google Sheets on page load.
+- Orders are appended to the Storage tab. The last price is automatically saved back to SKU column C.
+- All analytics (totals, groupings, filtering) are computed client-side for speed.
+- No server-side rendering needed — it's a single-page client app.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Key Design Decisions
+
+- **Last Price in Sheet**: Stored in SKU!C so it's available instantly on load without scanning all logs.
+- **Period Row Separators**: Instead of a "Year" or "Month" column, tables show highlighted header rows separating periods.
+- **Notes as Popup**: Notes don't take up table space. A small icon shows only when a note exists; tap to view in a modal.
+- **Sort Controls**: Consolidated views have inline sort buttons (Product ID, Qty, Revenue, Lines) with asc/desc toggle.
+- **Searchable Product Filter**: In Buyer Analytics, the product filter is a searchable dropdown for handling 200+ SKUs.
+- **Mobile-first Tables**: Non-essential columns (Order ID, Total, Lines) are hidden on small screens.
