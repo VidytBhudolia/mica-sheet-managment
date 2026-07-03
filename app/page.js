@@ -5,6 +5,7 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
+  ArrowUpDown,
   BarChart3,
   Building2,
   Check,
@@ -18,6 +19,7 @@ import {
   Save,
   Search,
   StickyNote,
+  TrendingUp,
   Users,
   X,
 } from 'lucide-react';
@@ -25,14 +27,16 @@ import { appendOrderLog, fetchMasterData, updateSkuPrice } from './actions';
 
 const navItems = [
   { id: 'entry', label: 'Data Entry', icon: PlusCircle },
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'macroTrends', label: 'Macro Trends', icon: TrendingUp },
   { id: 'buyerAnalytics', label: 'Buyer Analytics', icon: BarChart3 },
+  { id: 'skuAnalytics', label: 'SKU Analytics', icon: Package },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'logs', label: 'Storage Logs', icon: History },
   { id: 'skus', label: 'SKU Master', icon: Package },
   { id: 'buyers', label: 'Buyer Master', icon: Users },
 ];
 
-const financialYears = ['ALL', '2026-2027', '2025-2026'];
+const financialYears = ['ALL', '2026-2027', '2025-2026', '2024-2025'];
 const dashboardGroupModes = ['Annually', 'Monthly'];
 const viewModes = ['Detailed Logs', 'Consolidated View'];
 const buyerViewModes = ['Detailed Logs', 'Consolidated'];
@@ -57,6 +61,10 @@ const createInitialForm = () => ({
   orderId: createOrderId(),
   buyerSearch: '',
   buyerId: '',
+});
+
+const createLineItem = () => ({
+  id: Math.random().toString(36).slice(2, 9),
   productSearch: '',
   productId: '',
   quantity: '',
@@ -173,16 +181,31 @@ function NoteCell({ notes, onView }) {
   );
 }
 
+function SortableHeader({ label, sortKey, activeSort, onSort, className = '' }) {
+  const isActive = activeSort.key === sortKey;
+  return (
+    <th className={`px-3 py-2.5 sm:px-4 sm:py-3 cursor-pointer select-none hover:bg-slate-200 transition ${className}`} onClick={() => onSort(sortKey)}>
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {isActive ? (activeSort.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : <ArrowUpDown size={11} className="opacity-40" />}
+      </span>
+    </th>
+  );
+}
+
 export default function NexusB2B() {
   const [activeTab, setActiveTab] = useState('entry');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState(createInitialForm);
-  const [dropdowns, setDropdowns] = useState({ buyer: false, product: false, analyticsBuyer: false, buyerProduct: false });
+  const [orderLines, setOrderLines] = useState(() => [createLineItem()]);
+  const [dropdowns, setDropdowns] = useState({ buyer: false, analyticsBuyer: false, buyerProduct: false, skuAnalyticsSku: false });
+  const [activeProductDropdown, setActiveProductDropdown] = useState(null);
   const [financialYear, setFinancialYear] = useState('ALL');
   const [viewMode, setViewMode] = useState('Detailed Logs');
   const [dashboardGrouping, setDashboardGrouping] = useState('Annually');
   const [dashboardSort, setDashboardSort] = useState({ key: 'totalRevenue', dir: 'desc' });
+  // Buyer Analytics state
   const [analyticsBuyerSearch, setAnalyticsBuyerSearch] = useState('');
   const [selectedAnalyticsBuyerId, setSelectedAnalyticsBuyerId] = useState('');
   const [buyerProductFilter, setBuyerProductFilter] = useState('ALL');
@@ -191,6 +214,21 @@ export default function NexusB2B() {
   const [buyerGrouping, setBuyerGrouping] = useState('Year-wise');
   const [buyerViewMode, setBuyerViewMode] = useState('Detailed Logs');
   const [buyerSort, setBuyerSort] = useState({ key: 'totalRevenue', dir: 'desc' });
+  // YoY Variance state
+  const [yoyBaselineYear, setYoyBaselineYear] = useState('');
+  const [yoyComparisonYear, setYoyComparisonYear] = useState('');
+
+  // SKU Analytics state
+  const [selectedAnalyticsSkuId, setSelectedAnalyticsSkuId] = useState('');
+  const [skuAnalyticsSearch, setSkuAnalyticsSearch] = useState('');
+  const [skuAnalyticsGrouping, setSkuAnalyticsGrouping] = useState('Year-wise');
+
+  // Macro Trends state
+  const [macroPerspective, setMacroPerspective] = useState('buyer');
+  const [macroYearFilter, setMacroYearFilter] = useState('ALL');
+  const [macroSort, setMacroSort] = useState({ key: 'ltv', dir: 'desc' });
+
+  // Shared state
   const [skuSearch, setSkuSearch] = useState('');
   const [editingSkuId, setEditingSkuId] = useState(null);
   const [editingSkuPrice, setEditingSkuPrice] = useState('');
@@ -203,6 +241,21 @@ export default function NexusB2B() {
   const [mobileNav, setMobileNav] = useState(false);
 
   const skuInputRef = useRef(null);
+
+  // Navigation helper — routes to analytics tabs from Macro Trends
+  const navigateToAnalytics = (type, id) => {
+    if (type === 'buyer') {
+      setSelectedAnalyticsBuyerId(id);
+      const buyer = buyers.find(b => b.buyerId === id);
+      setAnalyticsBuyerSearch(buyer?.companyName || id);
+      setActiveTab('buyerAnalytics');
+    } else if (type === 'sku') {
+      setSelectedAnalyticsSkuId(id);
+      const sku = skus.find(s => s.productId === id);
+      setSkuAnalyticsSearch(sku?.description || id);
+      setActiveTab('skuAnalytics');
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -242,10 +295,10 @@ export default function NexusB2B() {
     return buyers.filter(b => !q || `${b.buyerId} ${b.companyName}`.toLowerCase().includes(q));
   }, [buyers, form.buyerSearch]);
 
-  const filteredSkus = useMemo(() => {
-    const q = normalize(form.productSearch);
+  const getFilteredSkusForLine = (searchQuery) => {
+    const q = normalize(searchQuery);
     return skus.filter(s => !q || `${s.productId} ${s.description}`.toLowerCase().includes(q));
-  }, [skus, form.productSearch]);
+  };
 
   const filteredAnalyticsBuyers = useMemo(() => {
     const q = normalize(analyticsBuyerSearch);
@@ -262,6 +315,11 @@ export default function NexusB2B() {
     return skus.filter(s => !q || `${s.productId} ${s.description}`.toLowerCase().includes(q));
   }, [skuSearch, skus]);
 
+  const filteredSkuAnalyticsSkus = useMemo(() => {
+    const q = normalize(skuAnalyticsSearch);
+    return skus.filter(s => !q || `${s.productId} ${s.description}`.toLowerCase().includes(q));
+  }, [skus, skuAnalyticsSearch]);
+
   const enrichedLogs = useMemo(() => storageLogs.map(log => {
     const buyer = buyerMap.get(log.buyerId);
     const sku = skuMap.get(log.productId);
@@ -270,6 +328,50 @@ export default function NexusB2B() {
     return { ...log, companyName: buyer?.companyName || 'Unknown Buyer', description: sku?.description || 'Unknown Product', quantity, unitPrice, totalValue: quantity * unitPrice, fy: getFinancialYear(log.date), monthKey: getMonthKey(log.date) };
   }), [buyerMap, skuMap, storageLogs]);
 
+  // --- MACRO TRENDS: Buyer Perspective ---
+  const macroFilteredLogs = useMemo(() => {
+    if (macroYearFilter === 'ALL') return enrichedLogs;
+    return enrichedLogs.filter(l => l.fy === macroYearFilter);
+  }, [enrichedLogs, macroYearFilter]);
+
+  const macroBuyerData = useMemo(() => {
+    const grouped = new Map();
+    macroFilteredLogs.forEach(log => {
+      const cur = grouped.get(log.buyerId) || { buyerId: log.buyerId, companyName: log.companyName, ltv: 0, orderIds: new Set(), lastOrderDate: '' };
+      cur.ltv += log.totalValue;
+      if (log.orderId) cur.orderIds.add(log.orderId);
+      const logSort = getDateSortValue(log.date);
+      const curSort = getDateSortValue(cur.lastOrderDate);
+      if (logSort > curSort) cur.lastOrderDate = log.date;
+      grouped.set(log.buyerId, cur);
+    });
+    return [...grouped.values()].map(b => ({
+      ...b,
+      totalOrders: b.orderIds.size,
+      aov: b.orderIds.size > 0 ? b.ltv / b.orderIds.size : 0,
+    }));
+  }, [macroFilteredLogs]);
+
+  // --- MACRO TRENDS: SKU Perspective ---
+  const macroSkuData = useMemo(() => {
+    const grouped = new Map();
+    macroFilteredLogs.forEach(log => {
+      const cur = grouped.get(log.productId) || { productId: log.productId, description: log.description, ltv: 0, orderIds: new Set(), totalQty: 0, lastOrderDate: '' };
+      cur.ltv += log.totalValue;
+      cur.totalQty += log.quantity;
+      if (log.orderId) cur.orderIds.add(log.orderId);
+      const logSort = getDateSortValue(log.date);
+      const curSort = getDateSortValue(cur.lastOrderDate);
+      if (logSort > curSort) cur.lastOrderDate = log.date;
+      grouped.set(log.productId, cur);
+    });
+    return [...grouped.values()].map(s => ({
+      ...s,
+      totalOrders: s.orderIds.size,
+    }));
+  }, [macroFilteredLogs]);
+
+  // --- DASHBOARD ---
   const dashboardLogs = useMemo(() => {
     const rows = financialYear === 'ALL' ? enrichedLogs : enrichedLogs.filter(l => l.fy === financialYear);
     return [...rows].sort((a, b) => getDateSortValue(b.date) - getDateSortValue(a.date));
@@ -308,7 +410,6 @@ export default function NexusB2B() {
     const groups = [];
     let cp = null, cg = null;
     const sorted = [...consolidatedRows];
-    // Apply secondary sort within same period
     sorted.sort((a, b) => {
       const ps = b.periodSort - a.periodSort;
       if (ps !== 0) return ps;
@@ -332,7 +433,9 @@ export default function NexusB2B() {
   }, [enrichedLogs]);
 
   const selectedAnalyticsBuyer = buyerMap.get(selectedAnalyticsBuyerId);
+  const selectedAnalyticsSku = skuMap.get(selectedAnalyticsSkuId);
 
+  // --- BUYER ANALYTICS ---
   const buyerAnalyticsLogs = useMemo(() => {
     if (!selectedAnalyticsBuyerId) return [];
     return enrichedLogs
@@ -393,41 +496,129 @@ export default function NexusB2B() {
     const revenue = buyerAnalyticsLogs.reduce((s, l) => s + l.totalValue, 0);
     const quantity = buyerAnalyticsLogs.reduce((s, l) => s + l.quantity, 0);
     const productCount = new Set(buyerAnalyticsLogs.map(l => l.productId).filter(Boolean)).size;
-    return { revenue, quantity, productCount, orderCount: buyerAnalyticsLogs.length };
+    const uniqueOrders = new Set(buyerAnalyticsLogs.map(l => l.orderId).filter(Boolean)).size;
+    return { revenue, quantity, productCount, orderCount: uniqueOrders };
   }, [buyerAnalyticsLogs]);
+
+  // YoY Variance Engine for Buyer Analytics
+  const yoyVarianceData = useMemo(() => {
+    if (!selectedAnalyticsBuyerId || !yoyBaselineYear || !yoyComparisonYear) return [];
+    const buyerLogs = enrichedLogs.filter(l => l.buyerId === selectedAnalyticsBuyerId);
+    const baselineLogs = buyerLogs.filter(l => l.fy === yoyBaselineYear);
+    const comparisonLogs = buyerLogs.filter(l => l.fy === yoyComparisonYear);
+    const skuQty = new Map();
+    baselineLogs.forEach(l => {
+      const cur = skuQty.get(l.productId) || { productId: l.productId, description: l.description, baselineQty: 0, comparisonQty: 0 };
+      cur.baselineQty += l.quantity;
+      skuQty.set(l.productId, cur);
+    });
+    comparisonLogs.forEach(l => {
+      const cur = skuQty.get(l.productId) || { productId: l.productId, description: l.description, baselineQty: 0, comparisonQty: 0 };
+      cur.comparisonQty += l.quantity;
+      skuQty.set(l.productId, cur);
+    });
+    return [...skuQty.values()].map(row => ({ ...row, variance: row.comparisonQty - row.baselineQty }));
+  }, [enrichedLogs, selectedAnalyticsBuyerId, yoyBaselineYear, yoyComparisonYear]);
 
   const dashboardStats = useMemo(() => {
     const revenue = dashboardLogs.reduce((s, l) => s + l.totalValue, 0);
     const quantity = dashboardLogs.reduce((s, l) => s + l.quantity, 0);
     const buyerCount = new Set(dashboardLogs.map(l => l.buyerId).filter(Boolean)).size;
-    return { revenue, quantity, buyerCount, orderCount: dashboardLogs.length };
+    const uniqueOrders = new Set(dashboardLogs.map(l => l.orderId).filter(Boolean)).size;
+    return { revenue, quantity, buyerCount, orderCount: uniqueOrders };
   }, [dashboardLogs]);
 
-  const canSubmit = Boolean(form.date && form.orderId && form.buyerId && form.productId && form.quantity && form.unitPrice && !isSubmitting);
+  // --- SKU ANALYTICS ---
+  const skuAnalyticsLogs = useMemo(() => {
+    if (!selectedAnalyticsSkuId) return [];
+    return enrichedLogs.filter(l => l.productId === selectedAnalyticsSkuId).sort((a, b) => getDateSortValue(b.date) - getDateSortValue(a.date));
+  }, [enrichedLogs, selectedAnalyticsSkuId]);
+
+  // Top Buyers for selected SKU
+  const skuTopBuyers = useMemo(() => {
+    const grouped = new Map();
+    skuAnalyticsLogs.forEach(log => {
+      const cur = grouped.get(log.buyerId) || { buyerId: log.buyerId, companyName: log.companyName, totalQty: 0, totalRevenue: 0, lastPurchaseDate: '' };
+      cur.totalQty += log.quantity;
+      cur.totalRevenue += log.totalValue;
+      const logSort = getDateSortValue(log.date);
+      const curSort = getDateSortValue(cur.lastPurchaseDate);
+      if (logSort > curSort) cur.lastPurchaseDate = log.date;
+      grouped.set(log.buyerId, cur);
+    });
+    return [...grouped.values()].sort((a, b) => b.totalQty - a.totalQty);
+  }, [skuAnalyticsLogs]);
+
+  // Trend Engine for SKU (Year-wise or Month-wise)
+  const skuTrendData = useMemo(() => {
+    const isMW = skuAnalyticsGrouping === 'Month-wise';
+    const grouped = new Map();
+    skuAnalyticsLogs.forEach(log => {
+      const period = isMW ? log.monthKey : log.fy;
+      const periodSort = isMW ? getMonthSortValue(log.date) : getFinancialYearSortValue(log.fy);
+      const cur = grouped.get(period) || { period, periodSort, label: isMW ? getMonthLabel(period) : period, totalQty: 0, totalRevenue: 0 };
+      cur.totalQty += log.quantity;
+      cur.totalRevenue += log.totalValue;
+      grouped.set(period, cur);
+    });
+    return [...grouped.values()].sort((a, b) => b.periodSort - a.periodSort);
+  }, [skuAnalyticsLogs, skuAnalyticsGrouping]);
+
+  const canSubmit = Boolean(form.date && form.orderId && form.buyerId && orderLines.every(l => l.productId && l.quantity && l.unitPrice) && !isSubmitting);
   const updateForm = changes => setForm(prev => ({ ...prev, ...changes }));
   const closeDropdownSoon = key => { window.setTimeout(() => setDropdowns(prev => ({ ...prev, [key]: false })), 150); };
+
+  const updateLineItem = (lineId, changes) => {
+    setOrderLines(prev => prev.map(l => l.id === lineId ? { ...l, ...changes } : l));
+  };
+  const addLineItem = () => setOrderLines(prev => [...prev, createLineItem()]);
+  const removeLineItem = (lineId) => setOrderLines(prev => prev.length > 1 ? prev.filter(l => l.id !== lineId) : prev);
+  const closeProductDropdownSoon = () => { window.setTimeout(() => setActiveProductDropdown(null), 150); };
 
   const toggleSort = (setter) => (key) => {
     setter(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
   };
 
+  const toggleMacroSort = (key) => {
+    setMacroSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+  };
+
   const handleSubmit = async event => {
     event.preventDefault();
     if (!canSubmit) { setStatus({ type: 'error', message: 'Complete all required fields before submitting.' }); return; }
-    const newLog = { date: form.date, buyerId: form.buyerId, productId: form.productId, quantity: Number(form.quantity), unitPrice: Number(form.unitPrice), orderId: form.orderId, notes: form.notes };
     setIsSubmitting(true);
     setStatus(null);
-    setStorageLogs(prev => [newLog, ...prev]);
-    const result = await appendOrderLog(newLog);
-    if (!result.success) {
-      setStorageLogs(prev => prev.filter(l => l !== newLog));
-      setStatus({ type: 'error', message: result.error || 'Order could not be submitted.' });
-      setIsSubmitting(false);
-      return;
+
+    const linesToSubmit = orderLines.map(line => ({
+      date: form.date,
+      buyerId: form.buyerId,
+      productId: line.productId,
+      quantity: Number(line.quantity),
+      unitPrice: Number(line.unitPrice),
+      orderId: form.orderId,
+      notes: line.notes,
+    }));
+
+    // Optimistic UI — add all lines
+    setStorageLogs(prev => [...linesToSubmit, ...prev]);
+
+    let allSuccess = true;
+    for (const newLog of linesToSubmit) {
+      const result = await appendOrderLog(newLog);
+      if (!result.success) {
+        setStorageLogs(prev => prev.filter(l => !linesToSubmit.includes(l)));
+        setStatus({ type: 'error', message: result.error || 'Order could not be submitted.' });
+        setIsSubmitting(false);
+        allSuccess = false;
+        break;
+      }
+      if (newLog.unitPrice > 0) setSkus(prev => prev.map(s => s.productId === newLog.productId ? { ...s, defaultPrice: newLog.unitPrice } : s));
     }
-    if (newLog.unitPrice > 0) setSkus(prev => prev.map(s => s.productId === newLog.productId ? { ...s, defaultPrice: newLog.unitPrice } : s));
-    setForm(prev => ({ ...prev, productSearch: '', productId: '', quantity: '', unitPrice: '', notes: '' }));
-    setStatus({ type: 'success', message: 'Order line added to Storage.' });
+
+    if (allSuccess) {
+      setOrderLines([createLineItem()]);
+      setStatus({ type: 'success', message: `${linesToSubmit.length} line${linesToSubmit.length > 1 ? 's' : ''} added to Storage.` });
+    }
     setIsSubmitting(false);
   };
 
@@ -435,6 +626,12 @@ export default function NexusB2B() {
     setSelectedAnalyticsBuyerId(buyer.buyerId);
     setAnalyticsBuyerSearch(buyer.companyName);
     setDropdowns(prev => ({ ...prev, analyticsBuyer: false }));
+  };
+
+  const selectAnalyticsSku = sku => {
+    setSelectedAnalyticsSkuId(sku.productId);
+    setSkuAnalyticsSearch(sku.description);
+    setDropdowns(prev => ({ ...prev, skuAnalyticsSku: false }));
   };
 
   const startEditSku = (sku) => {
@@ -457,6 +654,39 @@ export default function NexusB2B() {
     setEditingSkuId(null);
     setUpdatingSkuId(null);
   };
+
+  // Sorted macro data
+  const sortedMacroBuyers = useMemo(() => {
+    const data = [...macroBuyerData];
+    const { key, dir } = macroSort;
+    data.sort((a, b) => {
+      let av, bv;
+      if (key === 'companyName') { av = a.companyName; bv = b.companyName; return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av); }
+      if (key === 'lastOrderDate') { av = getDateSortValue(a.lastOrderDate); bv = getDateSortValue(b.lastOrderDate); }
+      else if (key === 'ltv') { av = a.ltv; bv = b.ltv; }
+      else if (key === 'totalOrders') { av = a.totalOrders; bv = b.totalOrders; }
+      else if (key === 'aov') { av = a.aov; bv = b.aov; }
+      else { av = 0; bv = 0; }
+      return dir === 'asc' ? av - bv : bv - av;
+    });
+    return data;
+  }, [macroBuyerData, macroSort]);
+
+  const sortedMacroSkus = useMemo(() => {
+    const data = [...macroSkuData];
+    const { key, dir } = macroSort;
+    data.sort((a, b) => {
+      let av, bv;
+      if (key === 'description') { av = a.description; bv = b.description; return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av); }
+      if (key === 'lastOrderDate') { av = getDateSortValue(a.lastOrderDate); bv = getDateSortValue(b.lastOrderDate); }
+      else if (key === 'ltv') { av = a.ltv; bv = b.ltv; }
+      else if (key === 'totalOrders') { av = a.totalOrders; bv = b.totalOrders; }
+      else if (key === 'totalQty') { av = a.totalQty; bv = b.totalQty; }
+      else { av = 0; bv = 0; }
+      return dir === 'asc' ? av - bv : bv - av;
+    });
+    return data;
+  }, [macroSkuData, macroSort]);
 
 
   if (isLoading) {
@@ -504,7 +734,7 @@ export default function NexusB2B() {
             <p className="text-xs font-medium text-slate-400">Sales and Inventory</p>
           </div>
         </div>
-        <nav className="flex-1 space-y-1 px-3 py-5">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
           {navItems.map(item => {
             const Icon = item.icon;
             return (
@@ -592,53 +822,532 @@ export default function NexusB2B() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(140px,0.5fr)]">
-                  <div className="relative">
-                    <FieldLabel>Product Search</FieldLabel>
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                      <input type="text" value={form.productSearch} onFocus={() => setDropdowns(p => ({ ...p, product: true }))} onBlur={() => closeDropdownSoon('product')} onChange={e => updateForm({ productSearch: e.target.value, productId: '', unitPrice: '' })} className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
-                    </div>
-                    {dropdowns.product && (
-                      <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-                        {filteredSkus.length ? filteredSkus.map(s => (
-                          <button key={s.productId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { updateForm({ productId: s.productId, productSearch: s.description, unitPrice: String(lastPriceMap.get(s.productId) || s.defaultPrice || '') }); setDropdowns(p => ({ ...p, product: false })); }}
-                            className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-left transition last:border-b-0 hover:bg-blue-50">
-                            <span><span className="block text-sm font-semibold text-slate-900">{s.description}</span><span className="text-xs text-slate-500">{formatCurrency(lastPriceMap.get(s.productId) || s.defaultPrice)}</span></span>
-                            <span className="text-xs font-bold text-blue-700">{s.productId}</span>
-                          </button>
-                        )) : <div className="px-4 py-3 text-sm text-slate-500">No products found</div>}
+                {/* Line Items */}
+                <div className="space-y-4">
+                  {orderLines.map((line, idx) => {
+                    const lineSkus = getFilteredSkusForLine(line.productSearch);
+                    const lineTotal = (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
+                    return (
+                      <div key={line.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Item {idx + 1}</span>
+                          {orderLines.length > 1 && (
+                            <button type="button" onClick={() => removeLineItem(line.id)} className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 transition"><X size={16} /></button>
+                          )}
+                        </div>
+                        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(140px,0.5fr)]">
+                          <div className="relative">
+                            <FieldLabel>Product Search</FieldLabel>
+                            <div className="relative">
+                              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                              <input type="text" value={line.productSearch} onFocus={() => setActiveProductDropdown(line.id)} onBlur={closeProductDropdownSoon} onChange={e => updateLineItem(line.id, { productSearch: e.target.value, productId: '', unitPrice: '' })} className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                            </div>
+                            {activeProductDropdown === line.id && (
+                              <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                                {lineSkus.length ? lineSkus.map(s => (
+                                  <button key={s.productId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { updateLineItem(line.id, { productId: s.productId, productSearch: s.description, unitPrice: String(lastPriceMap.get(s.productId) || s.defaultPrice || '') }); setActiveProductDropdown(null); }}
+                                    className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-left transition last:border-b-0 hover:bg-blue-50">
+                                    <span><span className="block text-sm font-semibold text-slate-900">{s.description}</span><span className="text-xs text-slate-500">{formatCurrency(lastPriceMap.get(s.productId) || s.defaultPrice)}</span></span>
+                                    <span className="text-xs font-bold text-blue-700">{s.productId}</span>
+                                  </button>
+                                )) : <div className="px-4 py-3 text-sm text-slate-500">No products found</div>}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <FieldLabel>Product ID</FieldLabel>
+                            <input type="text" value={line.productId} disabled className="h-11 w-full rounded-lg border border-slate-200 bg-slate-100 px-4 text-sm font-bold text-slate-700" />
+                          </div>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div>
+                            <FieldLabel>Quantity</FieldLabel>
+                            <input type="number" min="0" step="0.01" value={line.quantity} onChange={e => updateLineItem(line.id, { quantity: e.target.value })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                          </div>
+                          <div>
+                            <FieldLabel>Unit Price</FieldLabel>
+                            <input type="number" min="0" step="0.01" value={line.unitPrice} onChange={e => updateLineItem(line.id, { unitPrice: e.target.value })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                          </div>
+                          <div>
+                            <FieldLabel>Notes</FieldLabel>
+                            <input type="text" value={line.notes} onChange={e => updateLineItem(line.id, { notes: e.target.value })} placeholder="Optional" className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                          </div>
+                        </div>
+                        <div className="text-right text-sm font-semibold text-slate-600">Line Total: <span className="text-slate-950">{formatCurrency(lineTotal)}</span></div>
                       </div>
-                    )}
-                  </div>
-                  <div>
-                    <FieldLabel>Product ID</FieldLabel>
-                    <input type="text" value={form.productId} disabled className="h-11 w-full rounded-lg border border-slate-200 bg-slate-100 px-4 text-sm font-bold text-slate-700" />
-                  </div>
-                </div>
+                    );
+                  })}
 
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div>
-                    <FieldLabel>Quantity</FieldLabel>
-                    <input type="number" min="0" step="0.01" value={form.quantity} onChange={e => updateForm({ quantity: e.target.value })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                  <div>
-                    <FieldLabel>Unit Price</FieldLabel>
-                    <input type="number" min="0" step="0.01" value={form.unitPrice} onChange={e => updateForm({ unitPrice: e.target.value })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
-                  </div>
-                  <div>
-                    <FieldLabel>Notes</FieldLabel>
-                    <input type="text" value={form.notes} onChange={e => updateForm({ notes: e.target.value })} placeholder="Optional" className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
-                  </div>
+                  {/* Add Line Button */}
+                  <button type="button" onClick={addLineItem} className="inline-flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700">
+                    <PlusCircle size={16} />Add Product Line
+                  </button>
                 </div>
 
                 <div className="flex flex-col justify-between gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center">
-                  <div className="text-sm font-semibold text-slate-600">Total: <span className="text-slate-950">{formatCurrency((Number(form.quantity) || 0) * (Number(form.unitPrice) || 0))}</span></div>
+                  <div className="text-sm font-bold text-slate-900">Order Total: <span className="text-lg text-slate-950">{formatCurrency(orderLines.reduce((sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0), 0))}</span></div>
                   <button type="submit" disabled={!canSubmit} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-                    {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}Submit
+                    {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}Submit {orderLines.length > 1 ? `(${orderLines.length} lines)` : ''}
                   </button>
                 </div>
               </form>
+            </section>
+          )}
+
+
+          {/* MACRO TRENDS */}
+          {activeTab === 'macroTrends' && (
+            <section className="space-y-5">
+              {/* Toggle + Year Filter */}
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                  <div className="flex-1">
+                    <div className="grid h-11 max-w-md grid-cols-2 rounded-lg border border-slate-300 bg-slate-100 p-1">
+                      <button type="button" onClick={() => { setMacroPerspective('buyer'); setMacroSort({ key: 'ltv', dir: 'desc' }); }} className={`rounded-md text-xs font-bold transition ${macroPerspective === 'buyer' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>Buyer Perspective</button>
+                      <button type="button" onClick={() => { setMacroPerspective('sku'); setMacroSort({ key: 'ltv', dir: 'desc' }); }} className={`rounded-md text-xs font-bold transition ${macroPerspective === 'sku' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>SKU Perspective</button>
+                    </div>
+                  </div>
+                  <div className="w-full sm:w-48">
+                    <FieldLabel>Year Range</FieldLabel>
+                    <select value={macroYearFilter} onChange={e => setMacroYearFilter(e.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
+                      {financialYears.map(o => <option key={o} value={o}>{o === 'ALL' ? 'All Years' : o}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Buyer Perspective Table */}
+              {macroPerspective === 'buyer' && (
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                  {sortedMacroBuyers.length ? (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-slate-200 text-sm">
+                        <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <SortableHeader label="Company Name" sortKey="companyName" activeSort={macroSort} onSort={toggleMacroSort} />
+                            <SortableHeader label="Last Order" sortKey="lastOrderDate" activeSort={macroSort} onSort={toggleMacroSort} />
+                            <SortableHeader label="LTV" sortKey="ltv" activeSort={macroSort} onSort={toggleMacroSort} className="text-right" />
+                            <SortableHeader label="Orders" sortKey="totalOrders" activeSort={macroSort} onSort={toggleMacroSort} className="text-right" />
+                            <SortableHeader label="AOV" sortKey="aov" activeSort={macroSort} onSort={toggleMacroSort} className="text-right hidden sm:table-cell" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {sortedMacroBuyers.map(row => (
+                            <tr key={row.buyerId} onClick={() => navigateToAnalytics('buyer', row.buyerId)} className="cursor-pointer hover:bg-slate-100 transition">
+                              <td className="px-3 py-2.5 font-semibold text-slate-900 sm:px-4 sm:py-3">{row.companyName}</td>
+                              <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-600 sm:px-4 sm:py-3 sm:text-sm">{row.lastOrderDate}</td>
+                              <td className="px-3 py-2.5 text-right font-bold text-slate-950 sm:px-4 sm:py-3">{formatCurrency(row.ltv)}</td>
+                              <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{formatNumber(row.totalOrders)}</td>
+                              <td className="hidden px-4 py-3 text-right sm:table-cell">{formatCurrency(row.aov)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : <div className="p-5"><EmptyState title="No buyer data available" /></div>}
+                </div>
+              )}
+
+              {/* SKU Perspective Table */}
+              {macroPerspective === 'sku' && (
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                  {sortedMacroSkus.length ? (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-slate-200 text-sm">
+                        <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <SortableHeader label="Product" sortKey="description" activeSort={macroSort} onSort={toggleMacroSort} />
+                            <SortableHeader label="Last Order" sortKey="lastOrderDate" activeSort={macroSort} onSort={toggleMacroSort} />
+                            <SortableHeader label="LTV" sortKey="ltv" activeSort={macroSort} onSort={toggleMacroSort} className="text-right" />
+                            <SortableHeader label="Orders" sortKey="totalOrders" activeSort={macroSort} onSort={toggleMacroSort} className="text-right" />
+                            <SortableHeader label="Qty Sold" sortKey="totalQty" activeSort={macroSort} onSort={toggleMacroSort} className="text-right hidden sm:table-cell" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {sortedMacroSkus.map(row => (
+                            <tr key={row.productId} onClick={() => navigateToAnalytics('sku', row.productId)} className="cursor-pointer hover:bg-slate-100 transition">
+                              <td className="px-3 py-2.5 sm:px-4 sm:py-3"><span className="block font-semibold text-slate-900">{row.description}</span><span className="text-xs text-slate-500">{row.productId}</span></td>
+                              <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-600 sm:px-4 sm:py-3 sm:text-sm">{row.lastOrderDate}</td>
+                              <td className="px-3 py-2.5 text-right font-bold text-slate-950 sm:px-4 sm:py-3">{formatCurrency(row.ltv)}</td>
+                              <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{formatNumber(row.totalOrders)}</td>
+                              <td className="hidden px-4 py-3 text-right sm:table-cell">{formatNumber(row.totalQty)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : <div className="p-5"><EmptyState title="No SKU data available" /></div>}
+                </div>
+              )}
+            </section>
+          )}
+
+
+          {/* BUYER ANALYTICS */}
+          {activeTab === 'buyerAnalytics' && (
+            <section className="space-y-5">
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="relative">
+                    <FieldLabel>Select Buyer</FieldLabel>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <input type="text" value={analyticsBuyerSearch} onFocus={() => setDropdowns(p => ({ ...p, analyticsBuyer: true }))} onBlur={() => closeDropdownSoon('analyticsBuyer')} onChange={e => { setAnalyticsBuyerSearch(e.target.value); setSelectedAnalyticsBuyerId(''); }}
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    {dropdowns.analyticsBuyer && (
+                      <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                        {filteredAnalyticsBuyers.length ? filteredAnalyticsBuyers.map(b => (
+                          <button key={b.buyerId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => selectAnalyticsBuyer(b)}
+                            className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-left transition last:border-b-0 hover:bg-blue-50">
+                            <span><span className="block text-sm font-semibold text-slate-900">{b.companyName}</span><span className="text-xs text-slate-500">{b.poc || b.contactNumber}</span></span>
+                            <span className="text-xs font-bold text-blue-700">{b.buyerId}</span>
+                          </button>
+                        )) : <div className="px-4 py-3 text-sm text-slate-500">No buyers found</div>}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Product filter */}
+                  <div className="relative">
+                    <FieldLabel>Product Filter</FieldLabel>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <input type="text" value={buyerProductSearch} placeholder="All Products" onFocus={() => setDropdowns(p => ({ ...p, buyerProduct: true }))} onBlur={() => closeDropdownSoon('buyerProduct')} onChange={e => { setBuyerProductSearch(e.target.value); if (!e.target.value) setBuyerProductFilter('ALL'); }}
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    {dropdowns.buyerProduct && (
+                      <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setBuyerProductFilter('ALL'); setBuyerProductSearch(''); setDropdowns(p => ({ ...p, buyerProduct: false })); }}
+                          className="flex w-full items-center px-4 py-2.5 text-left text-sm font-semibold text-slate-900 border-b border-slate-100 hover:bg-blue-50">All Products</button>
+                        {filteredBuyerProducts.map(s => (
+                          <button key={s.productId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setBuyerProductFilter(s.productId); setBuyerProductSearch(`${s.productId} - ${s.description}`); setDropdowns(p => ({ ...p, buyerProduct: false })); }}
+                            className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-left transition last:border-b-0 hover:bg-blue-50">
+                            <span className="text-sm font-medium text-slate-900">{s.description}</span>
+                            <span className="text-xs font-bold text-blue-700">{s.productId}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Buyer Profile Card */}
+                <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                  {selectedAnalyticsBuyer ? (
+                    <div>
+                      <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-slate-500">Buyer Profile</p>
+                          <h3 className="mt-1 text-lg font-bold text-slate-950">{selectedAnalyticsBuyer.companyName}</h3>
+                        </div>
+                        <StatusBadge tone="blue">{selectedAnalyticsBuyer.buyerId}</StatusBadge>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                        <div><p className="font-semibold text-slate-500">POC</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.poc || '-'}</p></div>
+                        <div><p className="font-semibold text-slate-500">Contact</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.contactNumber || '-'}</p></div>
+                        <div><p className="font-semibold text-slate-500">GSTIN</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.gstin || '-'}</p></div>
+                        <div><p className="font-semibold text-slate-500">E-Mail</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.email || '-'}</p></div>
+                        <div className="sm:col-span-2"><p className="font-semibold text-slate-500">Address</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.address || '-'}</p></div>
+                      </div>
+                    </div>
+                  ) : <EmptyState title="Select a buyer to view analytics" />}
+                </div>
+              </div>
+
+              {selectedAnalyticsBuyer && (
+                <>
+                  <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div>
+                        <FieldLabel>Date Range</FieldLabel>
+                        <select value={buyerDateRange} onChange={e => setBuyerDateRange(e.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
+                          {buyerDateRangeOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <FieldLabel>Grouping</FieldLabel>
+                        <div className="grid h-11 grid-cols-2 rounded-lg border border-slate-300 bg-slate-100 p-1">
+                          {buyerGroupModes.map(o => (
+                            <button key={o} type="button" onClick={() => setBuyerGrouping(o)} className={`rounded-md text-xs font-bold transition ${buyerGrouping === o ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{o}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <FieldLabel>View</FieldLabel>
+                        <div className="grid h-11 grid-cols-2 rounded-lg border border-slate-300 bg-slate-100 p-1">
+                          {buyerViewModes.map(o => (
+                            <button key={o} type="button" onClick={() => setBuyerViewMode(o)} className={`rounded-md text-xs font-bold transition ${buyerViewMode === o ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{o}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+                    <StatTile label="Revenue" value={formatCurrency(buyerAnalyticsStats.revenue)} icon={BarChart3} tone="blue" />
+                    <StatTile label="Quantity" value={formatNumber(buyerAnalyticsStats.quantity)} icon={Package} tone="emerald" />
+                    <StatTile label="Products" value={formatNumber(buyerAnalyticsStats.productCount)} icon={Package} tone="amber" />
+                    <StatTile label="Orders" value={formatNumber(buyerAnalyticsStats.orderCount)} icon={History} tone="slate" />
+                  </div>
+
+                  {/* YoY SKU Variance Engine */}
+                  <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+                    <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">YoY SKU Variance</h3>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <FieldLabel>Baseline Year</FieldLabel>
+                        <select value={yoyBaselineYear} onChange={e => setYoyBaselineYear(e.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
+                          <option value="">Select Year</option>
+                          {buyerDateRangeOptions.filter(o => o !== 'All Time').map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <FieldLabel>Comparison Year</FieldLabel>
+                        <select value={yoyComparisonYear} onChange={e => setYoyComparisonYear(e.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
+                          <option value="">Select Year</option>
+                          {buyerDateRangeOptions.filter(o => o !== 'All Time').map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    {yoyBaselineYear && yoyComparisonYear && (
+                      yoyVarianceData.length ? (
+                        <div className="overflow-x-auto rounded-lg border border-slate-200">
+                          <table className="min-w-full divide-y divide-slate-200 text-sm">
+                            <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                              <tr>
+                                <th className="px-3 py-2.5 sm:px-4 sm:py-3">SKU</th>
+                                <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{yoyBaselineYear} Qty</th>
+                                <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{yoyComparisonYear} Qty</th>
+                                <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Variance (Δ)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {yoyVarianceData.map(row => (
+                                <tr key={row.productId} className="hover:bg-slate-50">
+                                  <td className="px-3 py-2.5 sm:px-4 sm:py-3"><span className="font-semibold text-slate-900">{row.description}</span><br/><span className="text-xs text-slate-500">{row.productId}</span></td>
+                                  <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{formatNumber(row.baselineQty)}</td>
+                                  <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{formatNumber(row.comparisonQty)}</td>
+                                  <td className={`px-3 py-2.5 text-right font-bold sm:px-4 sm:py-3 ${row.variance > 0 ? 'text-emerald-600' : row.variance < 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                                    {row.variance > 0 ? '+' : ''}{formatNumber(row.variance)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : <EmptyState title="No matching SKU data for the selected years" />
+                    )}
+                  </div>
+
+                  {/* Sort bar for consolidated */}
+                  {buyerViewMode === 'Consolidated' && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-500">Sort:</span>
+                      {sortFields.map(f => <SortButton key={f.key} label={f.label} sortKey={f.key} activeSort={buyerSort} onToggle={toggleSort(setBuyerSort)} />)}
+                    </div>
+                  )}
+
+                  {/* Transaction Logs */}
+                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                    {buyerViewMode === 'Detailed Logs' ? (
+                      buyerLogsByPeriod.length ? (
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-slate-200 text-sm">
+                            <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                              <tr>
+                                <th className="px-3 py-2.5 sm:px-4 sm:py-3">Date</th>
+                                <th className="hidden px-4 py-3 sm:table-cell">Order ID</th>
+                                <th className="px-3 py-2.5 sm:px-4 sm:py-3">Product</th>
+                                <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Qty</th>
+                                <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Price</th>
+                                <th className="hidden px-4 py-3 text-right sm:table-cell">Total</th>
+                                <th className="w-8 px-2 py-2.5"></th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {buyerLogsByPeriod.map(group => (
+                                <React.Fragment key={group.key}>
+                                  <tr className="bg-blue-50 border-l-4 border-l-blue-400">
+                                    <td colSpan={7} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                                  </tr>
+                                  {group.logs.map((log, i) => (
+                                    <tr key={`${log.orderId}-${log.productId}-${i}`} className="hover:bg-slate-50">
+                                      <td className="whitespace-nowrap px-3 py-2.5 text-xs font-medium text-slate-700 sm:px-4 sm:py-3 sm:text-sm">{log.date}</td>
+                                      <td className="hidden whitespace-nowrap px-4 py-3 font-semibold text-slate-900 sm:table-cell">{log.orderId}</td>
+                                      <td className="px-3 py-2.5 text-xs sm:px-4 sm:py-3 sm:text-sm">{log.description}</td>
+                                      <td className="px-3 py-2.5 text-right text-xs sm:px-4 sm:py-3 sm:text-sm">{formatNumber(log.quantity)}</td>
+                                      <td className="px-3 py-2.5 text-right text-xs sm:px-4 sm:py-3 sm:text-sm">{formatCurrency(log.unitPrice)}</td>
+                                      <td className="hidden px-4 py-3 text-right font-bold text-slate-950 sm:table-cell">{formatCurrency(log.totalValue)}</td>
+                                      <td className="px-2 py-2.5 text-center"><NoteCell notes={log.notes} onView={setVisibleNote} /></td>
+                                    </tr>
+                                  ))}
+                                </React.Fragment>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : <div className="p-5"><EmptyState title="No buyer transactions match the selected filters" /></div>
+                    ) : buyerConsolidatedByPeriod.length ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200 text-sm">
+                          <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                            <tr>
+                              <th className="px-3 py-2.5 sm:px-4 sm:py-3">Product ID</th>
+                              <th className="px-3 py-2.5 sm:px-4 sm:py-3">Product</th>
+                              <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Qty</th>
+                              <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Revenue</th>
+                              <th className="hidden px-4 py-3 text-right sm:table-cell">Lines</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {buyerConsolidatedByPeriod.map(group => (
+                              <React.Fragment key={group.key}>
+                                <tr className="bg-blue-50 border-l-4 border-l-blue-400">
+                                  <td colSpan={5} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                                </tr>
+                                {group.rows.map(row => (
+                                  <tr key={`${row.period}-${row.productId}`} className="hover:bg-slate-50">
+                                    <td className="whitespace-nowrap px-3 py-2.5 font-bold text-slate-900 sm:px-4 sm:py-3">{row.productId}</td>
+                                    <td className="px-3 py-2.5 sm:px-4 sm:py-3">{row.description}</td>
+                                    <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{formatNumber(row.totalQty)}</td>
+                                    <td className="px-3 py-2.5 text-right font-bold text-slate-950 sm:px-4 sm:py-3">{formatCurrency(row.totalRevenue)}</td>
+                                    <td className="hidden px-4 py-3 text-right sm:table-cell">{formatNumber(row.orderCount)}</td>
+                                  </tr>
+                                ))}
+                              </React.Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : <div className="p-5"><EmptyState title="No consolidated buyer records found" /></div>}
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+
+
+          {/* SKU ANALYTICS */}
+          {activeTab === 'skuAnalytics' && (
+            <section className="space-y-5">
+              {/* SKU Selector + Profile */}
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
+                <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="relative">
+                    <FieldLabel>Select SKU</FieldLabel>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <input type="text" value={skuAnalyticsSearch} onFocus={() => setDropdowns(p => ({ ...p, skuAnalyticsSku: true }))} onBlur={() => closeDropdownSoon('skuAnalyticsSku')} onChange={e => { setSkuAnalyticsSearch(e.target.value); setSelectedAnalyticsSkuId(''); }}
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    {dropdowns.skuAnalyticsSku && (
+                      <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                        {filteredSkuAnalyticsSkus.length ? filteredSkuAnalyticsSkus.map(s => (
+                          <button key={s.productId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => selectAnalyticsSku(s)}
+                            className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-left transition last:border-b-0 hover:bg-blue-50">
+                            <span><span className="block text-sm font-semibold text-slate-900">{s.description}</span><span className="text-xs text-slate-500">{formatCurrency(s.defaultPrice)}</span></span>
+                            <span className="text-xs font-bold text-blue-700">{s.productId}</span>
+                          </button>
+                        )) : <div className="px-4 py-3 text-sm text-slate-500">No SKUs found</div>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* SKU Profile Card */}
+                <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                  {selectedAnalyticsSku ? (
+                    <div>
+                      <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-slate-500">SKU Profile</p>
+                          <h3 className="mt-1 text-lg font-bold text-slate-950">{selectedAnalyticsSku.description}</h3>
+                        </div>
+                        <StatusBadge tone="blue">{selectedAnalyticsSku.productId}</StatusBadge>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-sm">
+                        <div><p className="font-semibold text-slate-500">Product ID</p><p className="font-medium text-slate-900">{selectedAnalyticsSku.productId}</p></div>
+                        <div><p className="font-semibold text-slate-500">Target Default Price</p><p className="font-medium text-slate-900">{selectedAnalyticsSku.defaultPrice ? formatCurrency(selectedAnalyticsSku.defaultPrice) : '—'}</p></div>
+                      </div>
+                    </div>
+                  ) : <EmptyState title="Select a SKU to view analytics" />}
+                </div>
+              </div>
+
+              {selectedAnalyticsSku && (
+                <>
+                  {/* Grouping Toggle */}
+                  <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                    <FieldLabel>Grouping</FieldLabel>
+                    <div className="grid h-11 max-w-xs grid-cols-2 rounded-lg border border-slate-300 bg-slate-100 p-1">
+                      {buyerGroupModes.map(o => (
+                        <button key={o} type="button" onClick={() => setSkuAnalyticsGrouping(o)} className={`rounded-md text-xs font-bold transition ${skuAnalyticsGrouping === o ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{o}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Top Buyers Engine */}
+                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                      <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Top Buyers for this SKU</h3>
+                    </div>
+                    {skuTopBuyers.length ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200 text-sm">
+                          <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                            <tr>
+                              <th className="px-3 py-2.5 sm:px-4 sm:py-3">Company</th>
+                              <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Total Qty</th>
+                              <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Revenue</th>
+                              <th className="hidden px-4 py-3 sm:table-cell">Last Purchase</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {skuTopBuyers.map(row => (
+                              <tr key={row.buyerId} onClick={() => navigateToAnalytics('buyer', row.buyerId)} className="cursor-pointer hover:bg-slate-100 transition">
+                                <td className="px-3 py-2.5 font-semibold text-slate-900 sm:px-4 sm:py-3">{row.companyName}</td>
+                                <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{formatNumber(row.totalQty)}</td>
+                                <td className="px-3 py-2.5 text-right font-bold text-slate-950 sm:px-4 sm:py-3">{formatCurrency(row.totalRevenue)}</td>
+                                <td className="hidden whitespace-nowrap px-4 py-3 text-slate-600 sm:table-cell">{row.lastPurchaseDate}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : <div className="p-5"><EmptyState title="No buyer data for this SKU" /></div>}
+                  </div>
+
+                  {/* Trend Engine */}
+                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                      <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Trend ({skuAnalyticsGrouping})</h3>
+                    </div>
+                    {skuTrendData.length ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200 text-sm">
+                          <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                            <tr>
+                              <th className="px-3 py-2.5 sm:px-4 sm:py-3">Period</th>
+                              <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Quantity</th>
+                              <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Revenue</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {skuTrendData.map(row => (
+                              <tr key={row.period} className="hover:bg-slate-50">
+                                <td className="px-3 py-2.5 font-semibold text-slate-900 sm:px-4 sm:py-3">{row.label}</td>
+                                <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{formatNumber(row.totalQty)}</td>
+                                <td className="px-3 py-2.5 text-right font-bold text-slate-950 sm:px-4 sm:py-3">{formatCurrency(row.totalRevenue)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : <div className="p-5"><EmptyState title="No trend data for this SKU" /></div>}
+                  </div>
+                </>
+              )}
             </section>
           )}
 
@@ -650,7 +1359,7 @@ export default function NexusB2B() {
                 <StatTile label="Revenue" value={formatCurrency(dashboardStats.revenue)} icon={BarChart3} tone="blue" />
                 <StatTile label="Quantity" value={formatNumber(dashboardStats.quantity)} icon={Package} tone="emerald" />
                 <StatTile label="Buyers" value={formatNumber(dashboardStats.buyerCount)} icon={Users} tone="amber" />
-                <StatTile label="Logs" value={formatNumber(dashboardStats.orderCount)} icon={History} tone="slate" />
+                <StatTile label="Orders" value={formatNumber(dashboardStats.orderCount)} icon={History} tone="slate" />
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -680,7 +1389,6 @@ export default function NexusB2B() {
                 </div>
               </div>
 
-              {/* Sort bar for consolidated */}
               {viewMode === 'Consolidated View' && (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-semibold text-slate-500">Sort:</span>
@@ -763,199 +1471,6 @@ export default function NexusB2B() {
                   </div>
                 ) : <div className="p-5"><EmptyState title="No consolidated records found" /></div>}
               </div>
-            </section>
-          )}
-
-
-          {/* BUYER ANALYTICS */}
-          {activeTab === 'buyerAnalytics' && (
-            <section className="space-y-5">
-              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
-                <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="relative">
-                    <FieldLabel>Select Buyer</FieldLabel>
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                      <input type="text" value={analyticsBuyerSearch} onFocus={() => setDropdowns(p => ({ ...p, analyticsBuyer: true }))} onBlur={() => closeDropdownSoon('analyticsBuyer')} onChange={e => { setAnalyticsBuyerSearch(e.target.value); setSelectedAnalyticsBuyerId(''); }}
-                        className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
-                    </div>
-                    {dropdowns.analyticsBuyer && (
-                      <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-                        {filteredAnalyticsBuyers.length ? filteredAnalyticsBuyers.map(b => (
-                          <button key={b.buyerId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => selectAnalyticsBuyer(b)}
-                            className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-left transition last:border-b-0 hover:bg-blue-50">
-                            <span><span className="block text-sm font-semibold text-slate-900">{b.companyName}</span><span className="text-xs text-slate-500">{b.poc || b.contactNumber}</span></span>
-                            <span className="text-xs font-bold text-blue-700">{b.buyerId}</span>
-                          </button>
-                        )) : <div className="px-4 py-3 text-sm text-slate-500">No buyers found</div>}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Product filter — searchable dropdown */}
-                  <div className="relative">
-                    <FieldLabel>Product Filter</FieldLabel>
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                      <input type="text" value={buyerProductSearch} placeholder="All Products" onFocus={() => setDropdowns(p => ({ ...p, buyerProduct: true }))} onBlur={() => closeDropdownSoon('buyerProduct')} onChange={e => { setBuyerProductSearch(e.target.value); if (!e.target.value) setBuyerProductFilter('ALL'); }}
-                        className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
-                    </div>
-                    {dropdowns.buyerProduct && (
-                      <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-                        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setBuyerProductFilter('ALL'); setBuyerProductSearch(''); setDropdowns(p => ({ ...p, buyerProduct: false })); }}
-                          className="flex w-full items-center px-4 py-2.5 text-left text-sm font-semibold text-slate-900 border-b border-slate-100 hover:bg-blue-50">All Products</button>
-                        {filteredBuyerProducts.map(s => (
-                          <button key={s.productId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setBuyerProductFilter(s.productId); setBuyerProductSearch(`${s.productId} - ${s.description}`); setDropdowns(p => ({ ...p, buyerProduct: false })); }}
-                            className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-left transition last:border-b-0 hover:bg-blue-50">
-                            <span className="text-sm font-medium text-slate-900">{s.description}</span>
-                            <span className="text-xs font-bold text-blue-700">{s.productId}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                  {selectedAnalyticsBuyer ? (
-                    <div>
-                      <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase text-slate-500">Buyer Profile</p>
-                          <h3 className="mt-1 text-lg font-bold text-slate-950">{selectedAnalyticsBuyer.companyName}</h3>
-                        </div>
-                        <StatusBadge tone="blue">{selectedAnalyticsBuyer.buyerId}</StatusBadge>
-                      </div>
-                      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                        <div><p className="font-semibold text-slate-500">POC</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.poc || '-'}</p></div>
-                        <div><p className="font-semibold text-slate-500">Contact</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.contactNumber || '-'}</p></div>
-                        <div><p className="font-semibold text-slate-500">GSTIN</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.gstin || '-'}</p></div>
-                        <div><p className="font-semibold text-slate-500">E-Mail</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.email || '-'}</p></div>
-                      </div>
-                    </div>
-                  ) : <EmptyState title="Select a buyer to view analytics" />}
-                </div>
-              </div>
-
-              {selectedAnalyticsBuyer && (
-                <>
-                  <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <div>
-                        <FieldLabel>Date Range</FieldLabel>
-                        <select value={buyerDateRange} onChange={e => setBuyerDateRange(e.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
-                          {buyerDateRangeOptions.map(o => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <FieldLabel>Grouping</FieldLabel>
-                        <div className="grid h-11 grid-cols-2 rounded-lg border border-slate-300 bg-slate-100 p-1">
-                          {buyerGroupModes.map(o => (
-                            <button key={o} type="button" onClick={() => setBuyerGrouping(o)} className={`rounded-md text-xs font-bold transition ${buyerGrouping === o ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{o}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <FieldLabel>View</FieldLabel>
-                        <div className="grid h-11 grid-cols-2 rounded-lg border border-slate-300 bg-slate-100 p-1">
-                          {buyerViewModes.map(o => (
-                            <button key={o} type="button" onClick={() => setBuyerViewMode(o)} className={`rounded-md text-xs font-bold transition ${buyerViewMode === o ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{o}</button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-                    <StatTile label="Revenue" value={formatCurrency(buyerAnalyticsStats.revenue)} icon={BarChart3} tone="blue" />
-                    <StatTile label="Quantity" value={formatNumber(buyerAnalyticsStats.quantity)} icon={Package} tone="emerald" />
-                    <StatTile label="Products" value={formatNumber(buyerAnalyticsStats.productCount)} icon={Package} tone="amber" />
-                    <StatTile label="Lines" value={formatNumber(buyerAnalyticsStats.orderCount)} icon={History} tone="slate" />
-                  </div>
-
-                  {/* Sort bar for consolidated */}
-                  {buyerViewMode === 'Consolidated' && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-semibold text-slate-500">Sort:</span>
-                      {sortFields.map(f => <SortButton key={f.key} label={f.label} sortKey={f.key} activeSort={buyerSort} onToggle={toggleSort(setBuyerSort)} />)}
-                    </div>
-                  )}
-
-                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                    {buyerViewMode === 'Detailed Logs' ? (
-                      buyerLogsByPeriod.length ? (
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full divide-y divide-slate-200 text-sm">
-                            <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                              <tr>
-                                <th className="px-3 py-2.5 sm:px-4 sm:py-3">Date</th>
-                                <th className="hidden px-4 py-3 sm:table-cell">Order ID</th>
-                                <th className="px-3 py-2.5 sm:px-4 sm:py-3">Product</th>
-                                <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Qty</th>
-                                <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Price</th>
-                                <th className="hidden px-4 py-3 text-right sm:table-cell">Total</th>
-                                <th className="w-8 px-2 py-2.5"></th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                              {buyerLogsByPeriod.map(group => (
-                                <React.Fragment key={group.key}>
-                                  <tr className="bg-blue-50 border-l-4 border-l-blue-400">
-                                    <td colSpan={7} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
-                                  </tr>
-                                  {group.logs.map((log, i) => (
-                                    <tr key={`${log.orderId}-${log.productId}-${i}`} className="hover:bg-slate-50">
-                                      <td className="whitespace-nowrap px-3 py-2.5 text-xs font-medium text-slate-700 sm:px-4 sm:py-3 sm:text-sm">{log.date}</td>
-                                      <td className="hidden whitespace-nowrap px-4 py-3 font-semibold text-slate-900 sm:table-cell">{log.orderId}</td>
-                                      <td className="px-3 py-2.5 text-xs sm:px-4 sm:py-3 sm:text-sm">{log.description}</td>
-                                      <td className="px-3 py-2.5 text-right text-xs sm:px-4 sm:py-3 sm:text-sm">{formatNumber(log.quantity)}</td>
-                                      <td className="px-3 py-2.5 text-right text-xs sm:px-4 sm:py-3 sm:text-sm">{formatCurrency(log.unitPrice)}</td>
-                                      <td className="hidden px-4 py-3 text-right font-bold text-slate-950 sm:table-cell">{formatCurrency(log.totalValue)}</td>
-                                      <td className="px-2 py-2.5 text-center"><NoteCell notes={log.notes} onView={setVisibleNote} /></td>
-                                    </tr>
-                                  ))}
-                                </React.Fragment>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : <div className="p-5"><EmptyState title="No buyer transactions match the selected filters" /></div>
-                    ) : buyerConsolidatedByPeriod.length ? (
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-slate-200 text-sm">
-                          <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                            <tr>
-                              <th className="px-3 py-2.5 sm:px-4 sm:py-3">Product ID</th>
-                              <th className="px-3 py-2.5 sm:px-4 sm:py-3">Product</th>
-                              <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Qty</th>
-                              <th className="px-3 py-2.5 text-right sm:px-4 sm:py-3">Revenue</th>
-                              <th className="hidden px-4 py-3 text-right sm:table-cell">Lines</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {buyerConsolidatedByPeriod.map(group => (
-                              <React.Fragment key={group.key}>
-                                <tr className="bg-blue-50 border-l-4 border-l-blue-400">
-                                  <td colSpan={5} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
-                                </tr>
-                                {group.rows.map(row => (
-                                  <tr key={`${row.period}-${row.productId}`} className="hover:bg-slate-50">
-                                    <td className="whitespace-nowrap px-3 py-2.5 font-bold text-slate-900 sm:px-4 sm:py-3">{row.productId}</td>
-                                    <td className="px-3 py-2.5 sm:px-4 sm:py-3">{row.description}</td>
-                                    <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">{formatNumber(row.totalQty)}</td>
-                                    <td className="px-3 py-2.5 text-right font-bold text-slate-950 sm:px-4 sm:py-3">{formatCurrency(row.totalRevenue)}</td>
-                                    <td className="hidden px-4 py-3 text-right sm:table-cell">{formatNumber(row.orderCount)}</td>
-                                  </tr>
-                                ))}
-                              </React.Fragment>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : <div className="p-5"><EmptyState title="No consolidated buyer records found" /></div>}
-                  </div>
-                </>
-              )}
             </section>
           )}
 
