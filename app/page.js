@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSession, signIn, signOut } from 'next-auth/react';
 import {
   AlertCircle,
   ArrowDown,
@@ -13,27 +14,30 @@ import {
   History,
   LayoutDashboard,
   Loader2,
+  LogOut,
   Package,
   PlusCircle,
   RefreshCw,
   Save,
   Search,
+  Shield,
   StickyNote,
   TrendingUp,
   Users,
   X,
 } from 'lucide-react';
-import { appendOrderLog, fetchMasterData, updateSkuPrice } from './actions';
+import { appendOrderLog, fetchMasterData, getUsersList, updateSkuPrice, updateUserStatus } from './actions';
 
-const navItems = [
-  { id: 'entry', label: 'Data Entry', icon: PlusCircle },
-  { id: 'macroTrends', label: 'Macro Trends', icon: TrendingUp },
-  { id: 'buyerAnalytics', label: 'Buyer Analytics', icon: BarChart3 },
-  { id: 'skuAnalytics', label: 'SKU Analytics', icon: Package },
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'logs', label: 'Storage Logs', icon: History },
-  { id: 'skus', label: 'SKU Master', icon: Package },
-  { id: 'buyers', label: 'Buyer Master', icon: Users },
+const allNavItems = [
+  { id: 'entry', label: 'Data Entry', icon: PlusCircle, access: 'all' },
+  { id: 'macroTrends', label: 'Macro Trends', icon: TrendingUp, access: 'admin' },
+  { id: 'buyerAnalytics', label: 'Buyer Analytics', icon: BarChart3, access: 'admin' },
+  { id: 'skuAnalytics', label: 'SKU Analytics', icon: Package, access: 'admin' },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, access: 'admin' },
+  { id: 'logs', label: 'Storage Logs', icon: History, access: 'all' },
+  { id: 'skus', label: 'SKU Master', icon: Package, access: 'admin' },
+  { id: 'buyers', label: 'Buyer Master', icon: Users, access: 'admin' },
+  { id: 'admin', label: 'Admin Panel', icon: Shield, access: 'admin' },
 ];
 
 const financialYears = ['ALL', '2026-2027', '2025-2026', '2024-2025'];
@@ -193,7 +197,18 @@ function SortableHeader({ label, sortKey, activeSort, onSort, className = '' }) 
   );
 }
 
-export default function NexusB2B() {
+export default function MicaSheetManagment() {
+  const { data: session, status: sessionStatus } = useSession();
+  const userRole = session?.user?.role || 'Employee';
+  const userStatus = session?.user?.status || 'Pending';
+  const isAdmin = userRole === 'Admin' && userStatus === 'Active';
+  const isActive = userStatus === 'Active';
+
+  const navItems = useMemo(() => {
+    if (isAdmin) return allNavItems;
+    return allNavItems.filter(item => item.access === 'all');
+  }, [isAdmin]);
+
   const [activeTab, setActiveTab] = useState('entry');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -227,6 +242,11 @@ export default function NexusB2B() {
   const [macroPerspective, setMacroPerspective] = useState('buyer');
   const [macroYearFilter, setMacroYearFilter] = useState('ALL');
   const [macroSort, setMacroSort] = useState({ key: 'ltv', dir: 'desc' });
+
+  // Admin Panel state
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminUpdating, setAdminUpdating] = useState(null);
 
   // Shared state
   const [skuSearch, setSkuSearch] = useState('');
@@ -280,6 +300,31 @@ export default function NexusB2B() {
   useEffect(() => {
     if (editingSkuId && skuInputRef.current) skuInputRef.current.focus();
   }, [editingSkuId]);
+
+  // Load admin users when admin tab is selected
+  useEffect(() => {
+    if (activeTab === 'admin' && isAdmin) {
+      setAdminLoading(true);
+      getUsersList().then(result => {
+        if (result.success) setAdminUsers(result.users);
+        setAdminLoading(false);
+      }).catch(() => setAdminLoading(false));
+    }
+  }, [activeTab, isAdmin]);
+
+  const handleUserStatusChange = async (rowIndex, newStatus) => {
+    setAdminUpdating(rowIndex);
+    // Optimistic update
+    setAdminUsers(prev => prev.map(u => u.rowIndex === rowIndex ? { ...u, status: newStatus } : u));
+    const result = await updateUserStatus(rowIndex, newStatus);
+    if (!result.success) {
+      // Rollback
+      const freshData = await getUsersList();
+      if (freshData.success) setAdminUsers(freshData.users);
+      setStatus({ type: 'error', message: result.error || 'Failed to update user.' });
+    }
+    setAdminUpdating(null);
+  };
 
   const buyerMap = useMemo(() => new Map(buyers.map(b => [b.buyerId, b])), [buyers]);
   const skuMap = useMemo(() => new Map(skus.map(s => [s.productId, s])), [skus]);
@@ -689,6 +734,83 @@ export default function NexusB2B() {
   }, [macroSkuData, macroSort]);
 
 
+  // --- AUTH SCREENS ---
+
+  // Session loading
+  if (sessionStatus === 'loading') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-700">
+        <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold shadow-sm">
+          <Loader2 className="animate-spin text-blue-600" size={20} />
+          Loading session...
+        </div>
+      </div>
+    );
+  }
+
+  // Unauthenticated — Login Screen
+  if (sessionStatus === 'unauthenticated' || !session) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-lg text-center">
+          <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-xl bg-blue-600">
+            <Building2 size={28} className="text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900">Nexus B2B</h1>
+          <p className="mt-2 text-sm text-slate-500">Sales and Inventory Management</p>
+          <button
+            type="button"
+            onClick={() => signIn('google')}
+            className="mt-8 inline-flex h-12 w-full items-center justify-center gap-3 rounded-lg bg-slate-900 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800"
+          >
+            <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Pending Approval
+  if (userStatus === 'Pending') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-lg text-center">
+          <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-xl bg-amber-100">
+            <Loader2 size={28} className="text-amber-600" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900">Approval Pending</h1>
+          <p className="mt-3 text-sm text-slate-500">Your account is awaiting administrator approval. Please contact your admin to unlock access.</p>
+          <p className="mt-4 text-xs text-slate-400">Signed in as {session.user.email}</p>
+          <button type="button" onClick={() => signOut()} className="mt-6 inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">
+            <LogOut size={14} />Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Terminated
+  if (userStatus === 'Terminated') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-lg text-center">
+          <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-xl bg-red-100">
+            <X size={28} className="text-red-600" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900">Access Revoked</h1>
+          <p className="mt-3 text-sm text-slate-500">Your access to this system has been terminated. Contact your administrator if you believe this is an error.</p>
+          <p className="mt-4 text-xs text-slate-400">Signed in as {session.user.email}</p>
+          <button type="button" onClick={() => signOut()} className="mt-6 inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">
+            <LogOut size={14} />Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- END AUTH SCREENS ---
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-700">
@@ -708,7 +830,7 @@ export default function NexusB2B() {
           <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="flex h-16 items-center border-b border-slate-800 px-4">
               <Building2 size={20} className="text-blue-400" />
-              <h1 className="ml-3 text-lg font-bold">Nexus B2B</h1>
+              <h1 className="ml-3 text-lg font-bold">Mica Sheet Managment</h1>
             </div>
             <nav className="space-y-1 px-3 py-4">
               {navItems.map(item => {
@@ -730,7 +852,7 @@ export default function NexusB2B() {
         <div className="flex h-20 items-center border-b border-slate-800 px-6">
           <div className="flex size-10 items-center justify-center rounded-lg bg-blue-600"><Building2 size={21} /></div>
           <div className="ml-3">
-            <h1 className="text-lg font-bold tracking-wide">Nexus B2B</h1>
+            <h1 className="text-lg font-bold tracking-wide">Mica Sheet Managment</h1>
             <p className="text-xs font-medium text-slate-400">Sales and Inventory</p>
           </div>
         </div>
@@ -745,10 +867,16 @@ export default function NexusB2B() {
             );
           })}
         </nav>
-        <div className="border-t border-slate-800 p-5">
+        <div className="border-t border-slate-800 p-5 space-y-3">
           <div className="rounded-lg bg-slate-800 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Records</p>
             <p className="mt-2 text-2xl font-bold">{formatNumber(storageLogs.length)}</p>
+          </div>
+          <div className="rounded-lg bg-slate-800 p-3">
+            <p className="truncate text-xs font-medium text-slate-400">{session?.user?.email}</p>
+            <button type="button" onClick={() => signOut()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-md bg-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-600 hover:text-white">
+              <LogOut size={13} />Sign Out
+            </button>
           </div>
         </div>
       </aside>
@@ -1596,6 +1724,89 @@ export default function NexusB2B() {
                   </table>
                 </div>
               ) : <div className="p-5"><EmptyState title="No buyer records found" /></div>}
+            </section>
+          )}
+
+          {/* ADMIN PANEL */}
+          {activeTab === 'admin' && isAdmin && (
+            <section className="space-y-5">
+              {/* Admin Stats */}
+              <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+                <StatTile label="Total Users" value={formatNumber(adminUsers.length)} icon={Users} tone="blue" />
+                <StatTile label="Active Users" value={formatNumber(adminUsers.filter(u => u.status === 'Active').length)} icon={CheckCircle2} tone="emerald" />
+                <StatTile label="Pending Approvals" value={formatNumber(adminUsers.filter(u => u.status === 'Pending').length)} icon={Loader2} tone="amber" />
+              </div>
+
+              {/* User Management Table */}
+              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                {adminLoading ? (
+                  <div className="flex items-center justify-center p-10">
+                    <Loader2 className="animate-spin text-blue-600" size={24} />
+                  </div>
+                ) : adminUsers.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                      <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2.5 sm:px-4 sm:py-3">Email</th>
+                          <th className="px-3 py-2.5 sm:px-4 sm:py-3">Role</th>
+                          <th className="px-3 py-2.5 sm:px-4 sm:py-3">Status</th>
+                          <th className="px-3 py-2.5 sm:px-4 sm:py-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {adminUsers.map(user => (
+                          <tr key={user.rowIndex} className="hover:bg-slate-50">
+                            <td className="px-3 py-2.5 font-medium text-slate-900 sm:px-4 sm:py-3">{user.email}</td>
+                            <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${user.role === 'Admin' ? 'bg-purple-50 text-purple-700 ring-purple-200' : 'bg-slate-100 text-slate-700 ring-slate-200'}`}>
+                                {user.role}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${
+                                user.status === 'Active' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' :
+                                user.status === 'Terminated' ? 'bg-red-50 text-red-700 ring-red-200' :
+                                'bg-amber-50 text-amber-700 ring-amber-200'
+                              }`}>
+                                {user.status}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                              <div className="flex flex-wrap gap-2">
+                                {user.status === 'Pending' && (
+                                  <>
+                                    <button type="button" disabled={adminUpdating === user.rowIndex} onClick={() => handleUserStatusChange(user.rowIndex, 'Active')}
+                                      className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+                                      {adminUpdating === user.rowIndex ? <Loader2 className="animate-spin" size={12} /> : <Check size={12} />}Approve
+                                    </button>
+                                    <button type="button" disabled={adminUpdating === user.rowIndex} onClick={() => handleUserStatusChange(user.rowIndex, 'Terminated')}
+                                      className="inline-flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-red-700 disabled:opacity-50">
+                                      {adminUpdating === user.rowIndex ? <Loader2 className="animate-spin" size={12} /> : <X size={12} />}Reject
+                                    </button>
+                                  </>
+                                )}
+                                {user.status === 'Active' && (
+                                  <button type="button" disabled={adminUpdating === user.rowIndex} onClick={() => handleUserStatusChange(user.rowIndex, 'Terminated')}
+                                    className="inline-flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-red-700 disabled:opacity-50">
+                                    {adminUpdating === user.rowIndex ? <Loader2 className="animate-spin" size={12} /> : <X size={12} />}Terminate
+                                  </button>
+                                )}
+                                {user.status === 'Terminated' && (
+                                  <button type="button" disabled={adminUpdating === user.rowIndex} onClick={() => handleUserStatusChange(user.rowIndex, 'Active')}
+                                    className="inline-flex items-center gap-1 rounded-md bg-slate-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-slate-700 disabled:opacity-50">
+                                    {adminUpdating === user.rowIndex ? <Loader2 className="animate-spin" size={12} /> : <RefreshCw size={12} />}Restore Access
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : <div className="p-5"><EmptyState title="No users found in Authorized_Users sheet" /></div>}
+              </div>
             </section>
           )}
         </div>

@@ -158,3 +158,47 @@ export async function updateSkuPrice(productId, newPrice) {
     return { success: false, error: 'Unable to update SKU price.' };
   }
 }
+
+export async function getUsersList() {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Authorized_Users!A2:C',
+    });
+
+    const users = (res.data.values || []).map((row, idx) => ({
+      email: (row[0] || '').trim(),
+      role: row[1] || 'Employee',
+      status: row[2] || 'Pending',
+      rowIndex: idx + 2,
+    }));
+
+    return { success: true, users };
+  } catch (error) {
+    console.error('Failed to fetch Authorized_Users:', error);
+    return { success: false, users: [], error: 'Unable to load users.' };
+  }
+}
+
+export async function updateUserStatus(rowIndex, newStatus) {
+  try {
+    const validStatuses = ['Active', 'Terminated', 'Pending'];
+    if (!validStatuses.includes(newStatus)) {
+      return { success: false, error: 'Invalid status value.' };
+    }
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `Authorized_Users!C${rowIndex}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [[newStatus]],
+      },
+    });
+
+    return { success: true, rowIndex, status: newStatus };
+  } catch (error) {
+    console.error('Failed to update user status:', error);
+    return { success: false, error: 'Unable to update user status.' };
+  }
+}
