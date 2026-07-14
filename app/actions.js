@@ -163,13 +163,15 @@ export async function getUsersList() {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'Authorized_Users!A2:C',
+      range: 'Authorized_Users!A2:E',
     });
 
     const users = (res.data.values || []).map((row, idx) => ({
       email: (row[0] || '').trim(),
-      role: row[1] || 'Employee',
-      status: row[2] || 'Pending',
+      name: row[1] || '',
+      phone: row[2] || '',
+      role: row[3] || 'Employee',
+      status: row[4] || 'Pending',
       rowIndex: idx + 2,
     }));
 
@@ -189,7 +191,7 @@ export async function updateUserStatus(rowIndex, newStatus) {
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
-      range: `Authorized_Users!C${rowIndex}`,
+      range: `Authorized_Users!E${rowIndex}`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [[newStatus]],
@@ -200,5 +202,39 @@ export async function updateUserStatus(rowIndex, newStatus) {
   } catch (error) {
     console.error('Failed to update user status:', error);
     return { success: false, error: 'Unable to update user status.' };
+  }
+}
+
+export async function registerNewUser(email, name, phone) {
+  try {
+    if (!email || !name || !phone) {
+      return { success: false, error: 'All fields are required.' };
+    }
+
+    // Check if user already exists
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Authorized_Users!A2:A',
+    });
+    const existingEmails = (res.data.values || []).map(row => (row[0] || '').trim().toLowerCase());
+    if (existingEmails.includes(email.trim().toLowerCase())) {
+      return { success: false, error: 'User already registered.' };
+    }
+
+    // Append new row: Email, Name, Phone, Role, Status
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Authorized_Users!A:E',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values: [[email.trim(), name.trim(), phone.trim(), 'Employee', 'Pending']],
+      },
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to register new user:', error);
+    return { success: false, error: 'Unable to register. Please try again.' };
   }
 }

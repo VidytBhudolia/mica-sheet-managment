@@ -26,7 +26,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { appendOrderLog, fetchMasterData, getUsersList, updateSkuPrice, updateUserStatus } from './actions';
+import { appendOrderLog, fetchMasterData, getUsersList, registerNewUser, updateSkuPrice, updateUserStatus } from './actions';
 
 const allNavItems = [
   { id: 'entry', label: 'Data Entry', icon: PlusCircle, access: 'all' },
@@ -200,9 +200,15 @@ function SortableHeader({ label, sortKey, activeSort, onSort, className = '' }) 
 export default function MicaSheetManagment() {
   const { data: session, status: sessionStatus } = useSession();
   const userRole = session?.user?.role || 'Employee';
-  const userStatus = session?.user?.status || 'Pending';
+  const userStatus = session?.user?.status || 'New';
   const isAdmin = userRole === 'Admin' && userStatus === 'Active';
   const isActive = userStatus === 'Active';
+  const isRegistered = session?.user?.isRegistered || false;
+
+  // Registration form state
+  const [regName, setRegName] = useState('');
+  const [regPhone, setRegPhone] = useState('');
+  const [regSubmitting, setRegSubmitting] = useState(false);
 
   const navItems = useMemo(() => {
     if (isAdmin) return allNavItems;
@@ -766,6 +772,65 @@ export default function MicaSheetManagment() {
             <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
             Sign in with Google
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // New user — Registration form (collect Name and Phone)
+  if (!isRegistered || userStatus === 'New') {
+    const handleRegister = async (e) => {
+      e.preventDefault();
+      if (!regName.trim() || !regPhone.trim()) return;
+      setRegSubmitting(true);
+      const result = await registerNewUser(session.user.email, regName, regPhone);
+      if (result.success) {
+        // Force session refresh to pick up new status
+        window.location.reload();
+      } else {
+        setStatus({ type: 'error', message: result.error || 'Registration failed.' });
+        setRegSubmitting(false);
+      }
+    };
+
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-lg">
+          <div className="text-center">
+            <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-xl bg-blue-600">
+              <Building2 size={28} className="text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900">Complete Your Profile</h1>
+            <p className="mt-2 text-sm text-slate-500">Please provide your details to request access</p>
+            <p className="mt-1 text-xs text-slate-400">{session.user.email}</p>
+          </div>
+          <form onSubmit={handleRegister} className="mt-6 space-y-4">
+            <div>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Full Name</label>
+              <input type="text" value={regName} onChange={e => setRegName(e.target.value)} placeholder="e.g. Rajesh Kumar" required
+                className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Phone Number</label>
+              <input type="tel" value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder="e.g. 9876543210" required
+                className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+            </div>
+            {status && status.type === 'error' && (
+              <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                <AlertCircle size={14} />{status.message}
+              </div>
+            )}
+            <button type="submit" disabled={regSubmitting || !regName.trim() || !regPhone.trim()}
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
+              {regSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+              Request Access
+            </button>
+          </form>
+          <div className="mt-4 text-center">
+            <button type="button" onClick={() => signOut()} className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 transition hover:text-slate-700">
+              <LogOut size={12} />Sign out
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1749,6 +1814,8 @@ export default function MicaSheetManagment() {
                       <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                         <tr>
                           <th className="px-3 py-2.5 sm:px-4 sm:py-3">Email</th>
+                          <th className="hidden px-4 py-3 sm:table-cell">Name</th>
+                          <th className="hidden px-4 py-3 md:table-cell">Phone</th>
                           <th className="px-3 py-2.5 sm:px-4 sm:py-3">Role</th>
                           <th className="px-3 py-2.5 sm:px-4 sm:py-3">Status</th>
                           <th className="px-3 py-2.5 sm:px-4 sm:py-3">Actions</th>
@@ -1757,7 +1824,12 @@ export default function MicaSheetManagment() {
                       <tbody className="divide-y divide-slate-100">
                         {adminUsers.map(user => (
                           <tr key={user.rowIndex} className="hover:bg-slate-50">
-                            <td className="px-3 py-2.5 font-medium text-slate-900 sm:px-4 sm:py-3">{user.email}</td>
+                            <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                              <span className="block font-medium text-slate-900">{user.email}</span>
+                              <span className="block text-xs text-slate-500 sm:hidden">{user.name}{user.phone ? ` • ${user.phone}` : ''}</span>
+                            </td>
+                            <td className="hidden whitespace-nowrap px-4 py-3 font-medium text-slate-900 sm:table-cell">{user.name || '—'}</td>
+                            <td className="hidden whitespace-nowrap px-4 py-3 text-slate-700 md:table-cell">{user.phone || '—'}</td>
                             <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                               <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${user.role === 'Admin' ? 'bg-purple-50 text-purple-700 ring-purple-200' : 'bg-slate-100 text-slate-700 ring-slate-200'}`}>
                                 {user.role}

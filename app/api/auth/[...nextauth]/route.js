@@ -18,12 +18,14 @@ async function getAuthorizedUsers() {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'Authorized_Users!A2:C',
+      range: 'Authorized_Users!A2:E',
     });
     return (res.data.values || []).map((row, idx) => ({
       email: (row[0] || '').trim().toLowerCase(),
-      role: row[1] || 'Employee',
-      status: row[2] || 'Pending',
+      name: row[1] || '',
+      phone: row[2] || '',
+      role: row[3] || 'Employee',
+      status: row[4] || 'Pending',
       rowIndex: idx + 2,
     }));
   } catch (error) {
@@ -40,49 +42,39 @@ const handler = NextAuth({
     }),
   ],
   callbacks: {
-    async signIn({ user }) {
-      try {
-        const users = await getAuthorizedUsers();
-        const normalizedEmail = (user.email || '').trim().toLowerCase();
-        const existing = users.find(u => u.email === normalizedEmail);
-
-        if (!existing) {
-          // Auto-signup: append new user as Pending Employee
-          await sheets.spreadsheets.values.append({
-            spreadsheetId: SPREADSHEET_ID,
-            range: 'Authorized_Users!A:C',
-            valueInputOption: 'USER_ENTERED',
-            insertDataOption: 'INSERT_ROWS',
-            requestBody: {
-              values: [[user.email, 'Employee', 'Pending']],
-            },
-          });
-        }
-
-        return true;
-      } catch (error) {
-        console.error('signIn callback error:', error);
-        return true;
-      }
+    async signIn() {
+      // Always allow sign-in; registration handled separately
+      return true;
     },
     async jwt({ token, user }) {
       if (user) {
         token.email = user.email;
       }
-      // Always fetch fresh role/status from sheet
+      // Fetch fresh role/status from sheet
       if (token.email) {
         const users = await getAuthorizedUsers();
         const normalizedEmail = (token.email || '').trim().toLowerCase();
         const found = users.find(u => u.email === normalizedEmail);
-        token.role = found?.role || 'Employee';
-        token.status = found?.status || 'Pending';
+        if (found) {
+          token.role = found.role;
+          token.status = found.status;
+          token.registeredName = found.name;
+          token.isRegistered = true;
+        } else {
+          token.role = 'Employee';
+          token.status = 'New';
+          token.registeredName = '';
+          token.isRegistered = false;
+        }
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.role = token.role || 'Employee';
-        session.user.status = token.status || 'Pending';
+        session.user.status = token.status || 'New';
+        session.user.registeredName = token.registeredName || '';
+        session.user.isRegistered = token.isRegistered || false;
       }
       return session;
     },
