@@ -762,7 +762,7 @@ export default function MicaSheetManagment() {
           <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-xl bg-blue-600">
             <Building2 size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Nexus B2B</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Mica Sheet</h1>
           <p className="mt-2 text-sm text-slate-500">Sales and Inventory Management</p>
           <button
             type="button"
@@ -895,7 +895,7 @@ export default function MicaSheetManagment() {
           <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="flex h-16 items-center border-b border-slate-800 px-4">
               <Building2 size={20} className="text-blue-400" />
-              <h1 className="ml-3 text-lg font-bold">Mica Sheet Managment</h1>
+              <h1 className="ml-3 text-lg font-bold">Mica Sheet</h1>
             </div>
             <nav className="space-y-1 px-3 py-4">
               {navItems.map(item => {
@@ -917,7 +917,7 @@ export default function MicaSheetManagment() {
         <div className="flex h-20 items-center border-b border-slate-800 px-6">
           <div className="flex size-10 items-center justify-center rounded-lg bg-blue-600"><Building2 size={21} /></div>
           <div className="ml-3">
-            <h1 className="text-lg font-bold tracking-wide">Mica Sheet Managment</h1>
+            <h1 className="text-lg font-bold tracking-wide">Mica Sheet</h1>
             <p className="text-xs font-medium text-slate-400">Sales and Inventory</p>
           </div>
         </div>
@@ -954,7 +954,7 @@ export default function MicaSheetManagment() {
               <button type="button" onClick={() => setMobileNav(true)} className="rounded-lg border border-slate-300 p-2 text-slate-600 lg:hidden"><Package size={18} /></button>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 sm:text-sm">{navItems.find(i => i.id === activeTab)?.label}</p>
-                <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950 sm:text-3xl">B2B Sales Ledger</h2>
+                <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950 sm:text-3xl">Sales Ledger</h2>
               </div>
             </div>
             <div className="hidden flex-wrap gap-2 sm:flex">
