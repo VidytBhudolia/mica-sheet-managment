@@ -2,8 +2,8 @@ import './globals.css';
 import Providers from './providers';
 
 export const metadata = {
-  title: 'Nexus B2B System',
-  description: 'B2B Sales and Inventory Management',
+  title: 'Mica Sheet',
+  description: 'Mica Sheet Sales Managment',
 };
 
 export default function RootLayout({ children }) {
