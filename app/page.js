@@ -728,15 +728,17 @@ export default function MicaSheetManagment() {
   };
 
   const generateNextSkuId = () => {
-    const existing = skus.map(s => s.productId).filter(id => /^SKU-\d+$/.test(id)).map(id => Number(id.replace('SKU-', '')));
+    const existing = skus.map(s => s.productId).filter(id => /^PROD-\d+$/.test(id)).map(id => Number(id.replace('PROD-', '')));
     const maxNum = existing.length ? Math.max(...existing) : 0;
-    return `SKU-${String(maxNum + 1).padStart(3, '0')}`;
+    const next = maxNum + 1;
+    return `PROD-${String(next).padStart(next > 999 ? 4 : 3, '0')}`;
   };
 
   const generateNextBuyerId = () => {
-    const existing = buyers.map(b => b.buyerId).filter(id => /^BUY-\d+$/.test(id)).map(id => Number(id.replace('BUY-', '')));
+    const existing = buyers.map(b => b.buyerId).filter(id => /^B-\d+$/.test(id)).map(id => Number(id.replace('B-', '')));
     const maxNum = existing.length ? Math.max(...existing) : 0;
-    return `BUY-${String(maxNum + 1).padStart(3, '0')}`;
+    const next = maxNum + 1;
+    return `B-${String(next).padStart(next > 999 ? 4 : 3, '0')}`;
   };
 
   const handleAddSku = async () => {
