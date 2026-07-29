@@ -26,7 +26,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { appendOrderLog, fetchMasterData, getUsersList, registerNewUser, updateSkuPrice, updateUserStatus } from './actions';
+import { addNewBuyer, addNewSku, appendOrderLog, fetchMasterData, getUsersList, registerNewUser, updateSkuPrice, updateUserStatus } from './actions';
 
 const allNavItems = [
   { id: 'entry', label: 'Data Entry', icon: PlusCircle, access: 'all' },
@@ -256,6 +256,7 @@ export default function MicaSheetManagment() {
 
   // Shared state
   const [skuSearch, setSkuSearch] = useState('');
+  const [buyerSearch, setBuyerSearch] = useState('');
   const [editingSkuId, setEditingSkuId] = useState(null);
   const [editingSkuPrice, setEditingSkuPrice] = useState('');
   const [updatingSkuId, setUpdatingSkuId] = useState(null);
@@ -265,6 +266,21 @@ export default function MicaSheetManagment() {
   const [storageLogs, setStorageLogs] = useState([]);
   const [visibleNote, setVisibleNote] = useState(null);
   const [mobileNav, setMobileNav] = useState(false);
+
+  // Add SKU form state
+  const [showAddSku, setShowAddSku] = useState(false);
+  const [newSkuDescription, setNewSkuDescription] = useState('');
+  const [addingNewSku, setAddingNewSku] = useState(false);
+
+  // Add Buyer form state
+  const [showAddBuyer, setShowAddBuyer] = useState(false);
+  const [newBuyerName, setNewBuyerName] = useState('');
+  const [newBuyerPoc, setNewBuyerPoc] = useState('');
+  const [newBuyerContact, setNewBuyerContact] = useState('');
+  const [newBuyerEmail, setNewBuyerEmail] = useState('');
+  const [newBuyerGstin, setNewBuyerGstin] = useState('');
+  const [newBuyerAddress, setNewBuyerAddress] = useState('');
+  const [addingNewBuyer, setAddingNewBuyer] = useState(false);
 
   const skuInputRef = useRef(null);
 
@@ -365,6 +381,11 @@ export default function MicaSheetManagment() {
     const q = normalize(skuSearch);
     return skus.filter(s => !q || `${s.productId} ${s.description}`.toLowerCase().includes(q));
   }, [skuSearch, skus]);
+
+  const filteredBuyerMasterRows = useMemo(() => {
+    const q = normalize(buyerSearch);
+    return buyers.filter(b => !q || `${b.buyerId} ${b.companyName} ${b.poc} ${b.contactNumber}`.toLowerCase().includes(q));
+  }, [buyerSearch, buyers]);
 
   const filteredSkuAnalyticsSkus = useMemo(() => {
     const q = normalize(skuAnalyticsSearch);
@@ -704,6 +725,52 @@ export default function MicaSheetManagment() {
     setStatus({ type: 'success', message: `${productId} price updated.` });
     setEditingSkuId(null);
     setUpdatingSkuId(null);
+  };
+
+  const generateNextSkuId = () => {
+    const existing = skus.map(s => s.productId).filter(id => /^SKU-\d+$/.test(id)).map(id => Number(id.replace('SKU-', '')));
+    const maxNum = existing.length ? Math.max(...existing) : 0;
+    return `SKU-${String(maxNum + 1).padStart(3, '0')}`;
+  };
+
+  const generateNextBuyerId = () => {
+    const existing = buyers.map(b => b.buyerId).filter(id => /^BUY-\d+$/.test(id)).map(id => Number(id.replace('BUY-', '')));
+    const maxNum = existing.length ? Math.max(...existing) : 0;
+    return `BUY-${String(maxNum + 1).padStart(3, '0')}`;
+  };
+
+  const handleAddSku = async () => {
+    if (!newSkuDescription.trim()) { setStatus({ type: 'error', message: 'SKU description is required.' }); return; }
+    setAddingNewSku(true);
+    setStatus(null);
+    const productId = generateNextSkuId();
+    const result = await addNewSku(productId, newSkuDescription.trim());
+    if (result.success) {
+      setSkus(prev => [...prev, result.sku]);
+      setNewSkuDescription('');
+      setShowAddSku(false);
+      setStatus({ type: 'success', message: `SKU ${productId} added.` });
+    } else {
+      setStatus({ type: 'error', message: result.error || 'Failed to add SKU.' });
+    }
+    setAddingNewSku(false);
+  };
+
+  const handleAddBuyer = async () => {
+    if (!newBuyerName.trim()) { setStatus({ type: 'error', message: 'Company name is required.' }); return; }
+    setAddingNewBuyer(true);
+    setStatus(null);
+    const buyerId = generateNextBuyerId();
+    const result = await addNewBuyer(buyerId, newBuyerName.trim(), newBuyerPoc, newBuyerContact, newBuyerEmail, newBuyerGstin, newBuyerAddress);
+    if (result.success) {
+      setBuyers(prev => [...prev, result.buyer]);
+      setNewBuyerName(''); setNewBuyerPoc(''); setNewBuyerContact(''); setNewBuyerEmail(''); setNewBuyerGstin(''); setNewBuyerAddress('');
+      setShowAddBuyer(false);
+      setStatus({ type: 'success', message: `Buyer ${buyerId} added.` });
+    } else {
+      setStatus({ type: 'error', message: result.error || 'Failed to add buyer.' });
+    }
+    setAddingNewBuyer(false);
   };
 
   // Sorted macro data
@@ -1734,12 +1801,44 @@ export default function MicaSheetManagment() {
           {activeTab === 'skus' && (
             <section className="space-y-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <FieldLabel>Search SKUs</FieldLabel>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                  <input type="text" value={skuSearch} onChange={e => setSkuSearch(e.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                <div className="flex items-end gap-3">
+                  <div className="flex-1">
+                    <FieldLabel>Search SKUs</FieldLabel>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <input type="text" value={skuSearch} onChange={e => setSkuSearch(e.target.value)} placeholder="Search by ID or description" className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setShowAddSku(!showAddSku)} className="inline-flex h-11 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700">
+                    <PlusCircle size={16} /><span className="hidden sm:inline">Add SKU</span>
+                  </button>
                 </div>
               </div>
+
+              {/* Add SKU Form */}
+              {showAddSku && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 shadow-sm space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wide text-blue-800">New SKU</h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <FieldLabel>Product ID (auto)</FieldLabel>
+                      <input type="text" value={generateNextSkuId()} disabled className="h-11 w-full rounded-lg border border-slate-200 bg-slate-100 px-4 text-sm font-bold text-slate-700" />
+                    </div>
+                    <div>
+                      <FieldLabel>Description *</FieldLabel>
+                      <input type="text" value={newSkuDescription} onChange={e => setNewSkuDescription(e.target.value)} placeholder="e.g. Mica Sheet 2mm Clear"
+                        onKeyDown={e => { if (e.key === 'Enter') handleAddSku(); }}
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleAddSku} disabled={addingNewSku || !newSkuDescription.trim()} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">
+                      {addingNewSku ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}Save
+                    </button>
+                    <button type="button" onClick={() => { setShowAddSku(false); setNewSkuDescription(''); }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100">Cancel</button>
+                  </div>
+                </div>
+              )}
 
               <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                 {filteredSkuMasterRows.length ? (
@@ -1786,8 +1885,73 @@ export default function MicaSheetManagment() {
 
           {/* BUYER MASTER */}
           {activeTab === 'buyers' && (
-            <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-              {buyers.length ? (
+            <section className="space-y-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-end gap-3">
+                  <div className="flex-1">
+                    <FieldLabel>Search Buyers</FieldLabel>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <input type="text" value={buyerSearch} onChange={e => setBuyerSearch(e.target.value)} placeholder="Search by ID, name, or contact" className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setShowAddBuyer(!showAddBuyer)} className="inline-flex h-11 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700">
+                    <PlusCircle size={16} /><span className="hidden sm:inline">Add Buyer</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Add Buyer Form */}
+              {showAddBuyer && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 shadow-sm space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wide text-blue-800">New Buyer</h4>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div>
+                      <FieldLabel>Buyer ID (auto)</FieldLabel>
+                      <input type="text" value={generateNextBuyerId()} disabled className="h-11 w-full rounded-lg border border-slate-200 bg-slate-100 px-4 text-sm font-bold text-slate-700" />
+                    </div>
+                    <div>
+                      <FieldLabel>Company Name *</FieldLabel>
+                      <input type="text" value={newBuyerName} onChange={e => setNewBuyerName(e.target.value)} placeholder="e.g. ABC Industries"
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    <div>
+                      <FieldLabel>POC (Person of Contact)</FieldLabel>
+                      <input type="text" value={newBuyerPoc} onChange={e => setNewBuyerPoc(e.target.value)} placeholder="Optional"
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    <div>
+                      <FieldLabel>Contact Number</FieldLabel>
+                      <input type="tel" value={newBuyerContact} onChange={e => setNewBuyerContact(e.target.value)} placeholder="Optional"
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    <div>
+                      <FieldLabel>Email</FieldLabel>
+                      <input type="email" value={newBuyerEmail} onChange={e => setNewBuyerEmail(e.target.value)} placeholder="Optional"
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    <div>
+                      <FieldLabel>GSTIN</FieldLabel>
+                      <input type="text" value={newBuyerGstin} onChange={e => setNewBuyerGstin(e.target.value)} placeholder="Optional"
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                    <div className="sm:col-span-2 lg:col-span-3">
+                      <FieldLabel>Address</FieldLabel>
+                      <input type="text" value={newBuyerAddress} onChange={e => setNewBuyerAddress(e.target.value)} placeholder="Optional"
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleAddBuyer} disabled={addingNewBuyer || !newBuyerName.trim()} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">
+                      {addingNewBuyer ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}Save
+                    </button>
+                    <button type="button" onClick={() => { setShowAddBuyer(false); setNewBuyerName(''); setNewBuyerPoc(''); setNewBuyerContact(''); setNewBuyerEmail(''); setNewBuyerGstin(''); setNewBuyerAddress(''); }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100">Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+              {filteredBuyerMasterRows.length ? (
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-slate-200 text-sm">
                     <thead className="bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1801,7 +1965,7 @@ export default function MicaSheetManagment() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {buyers.map(b => (
+                      {filteredBuyerMasterRows.map(b => (
                         <tr key={b.buyerId} className="hover:bg-slate-50">
                           <td className="whitespace-nowrap px-3 py-2.5 font-bold text-slate-900 sm:px-4 sm:py-3">{b.buyerId}</td>
                           <td className="px-3 py-2.5 font-semibold text-slate-900 sm:px-4 sm:py-3">{b.companyName}</td>
@@ -1815,6 +1979,7 @@ export default function MicaSheetManagment() {
                   </table>
                 </div>
               ) : <div className="p-5"><EmptyState title="No buyer records found" /></div>}
+              </div>
             </section>
           )}
 

@@ -238,3 +238,71 @@ export async function registerNewUser(email, name, phone) {
     return { success: false, error: 'Unable to register. Please try again.' };
   }
 }
+
+export async function addNewSku(productId, description) {
+  try {
+    if (!productId || !description) {
+      return { success: false, error: 'Product ID and description are required.' };
+    }
+
+    // Check if productId already exists
+    const skuRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'SKU!A2:A',
+    });
+    const existing = (skuRes.data.values || []).map(row => String(row[0] || '').trim().toUpperCase());
+    if (existing.includes(productId.trim().toUpperCase())) {
+      return { success: false, error: 'This Product ID already exists.' };
+    }
+
+    // Append: Product ID, Description, Last Price (0)
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'SKU!A:C',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values: [[productId.trim(), description.trim(), 0]],
+      },
+    });
+
+    return { success: true, sku: { productId: productId.trim(), description: description.trim(), defaultPrice: 0 } };
+  } catch (error) {
+    console.error('Failed to add SKU:', error);
+    return { success: false, error: 'Unable to add SKU.' };
+  }
+}
+
+export async function addNewBuyer(buyerId, companyName, poc, contactNumber, email, gstin, address) {
+  try {
+    if (!buyerId || !companyName) {
+      return { success: false, error: 'Buyer ID and Company Name are required.' };
+    }
+
+    // Check if buyerId already exists
+    const buyerRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Buyer!A2:A',
+    });
+    const existing = (buyerRes.data.values || []).map(row => String(row[0] || '').trim().toUpperCase());
+    if (existing.includes(buyerId.trim().toUpperCase())) {
+      return { success: false, error: 'This Buyer ID already exists.' };
+    }
+
+    // Append: Buyer ID, Company, POC, Contact, Email, GSTIN, Address
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Buyer!A:G',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values: [[buyerId.trim(), companyName.trim(), poc || '', contactNumber || '', email || '', gstin || '', address || '']],
+      },
+    });
+
+    return { success: true, buyer: { buyerId: buyerId.trim(), companyName: companyName.trim(), poc: poc || '', contactNumber: contactNumber || '', email: email || '', gstin: gstin || '', address: address || '' } };
+  } catch (error) {
+    console.error('Failed to add buyer:', error);
+    return { success: false, error: 'Unable to add buyer.' };
+  }
+}
