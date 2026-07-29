@@ -1359,10 +1359,17 @@ export default function MicaSheetManagment() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                              {buyerLogsByPeriod.map(group => (
+                              {buyerLogsByPeriod.map(group => {
+                                const periodQty = group.logs.reduce((s, l) => s + l.quantity, 0);
+                                const periodRevenue = group.logs.reduce((s, l) => s + l.totalValue, 0);
+                                return (
                                 <React.Fragment key={group.key}>
                                   <tr className="bg-blue-50 border-l-4 border-l-blue-400">
-                                    <td colSpan={7} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                                    <td colSpan={3} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                                    <td className="px-3 py-2 text-right text-xs font-bold text-blue-700 sm:px-4">{formatNumber(periodQty)}</td>
+                                    <td className="px-3 py-2 text-right text-xs font-bold text-blue-700 sm:px-4"></td>
+                                    <td className="hidden px-4 py-2 text-right text-xs font-bold text-blue-700 sm:table-cell">{formatCurrency(periodRevenue)}</td>
+                                    <td className="w-8 px-2 py-2"></td>
                                   </tr>
                                   {group.logs.map((log, i) => (
                                     <tr key={`${log.orderId}-${log.productId}-${i}`} className="hover:bg-slate-50">
@@ -1376,7 +1383,7 @@ export default function MicaSheetManagment() {
                                     </tr>
                                   ))}
                                 </React.Fragment>
-                              ))}
+                                );})}
                             </tbody>
                           </table>
                         </div>
@@ -1394,10 +1401,16 @@ export default function MicaSheetManagment() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {buyerConsolidatedByPeriod.map(group => (
+                            {buyerConsolidatedByPeriod.map(group => {
+                              const periodQty = group.rows.reduce((s, r) => s + r.totalQty, 0);
+                              const periodRevenue = group.rows.reduce((s, r) => s + r.totalRevenue, 0);
+                              return (
                               <React.Fragment key={group.key}>
                                 <tr className="bg-blue-50 border-l-4 border-l-blue-400">
-                                  <td colSpan={5} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                                  <td colSpan={2} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                                  <td className="px-3 py-2 text-right text-xs font-bold text-blue-700 sm:px-4">{formatNumber(periodQty)}</td>
+                                  <td className="px-3 py-2 text-right text-xs font-bold text-blue-700 sm:px-4">{formatCurrency(periodRevenue)}</td>
+                                  <td className="hidden px-4 py-2 text-right sm:table-cell"></td>
                                 </tr>
                                 {group.rows.map(row => (
                                   <tr key={`${row.period}-${row.productId}`} className="hover:bg-slate-50">
@@ -1409,7 +1422,7 @@ export default function MicaSheetManagment() {
                                   </tr>
                                 ))}
                               </React.Fragment>
-                            ))}
+                              );})}
                           </tbody>
                         </table>
                       </div>
@@ -1607,10 +1620,17 @@ export default function MicaSheetManagment() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {dashboardLogsByPeriod.map(group => (
+                          {dashboardLogsByPeriod.map(group => {
+                            const periodQty = group.logs.reduce((s, l) => s + l.quantity, 0);
+                            const periodRevenue = group.logs.reduce((s, l) => s + l.totalValue, 0);
+                            return (
                             <React.Fragment key={group.key}>
                               <tr className="bg-blue-50 border-l-4 border-l-blue-400">
-                                <td colSpan={8} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                                <td colSpan={4} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                                <td className="px-3 py-2 text-right text-xs font-bold text-blue-700 sm:px-4">{formatNumber(periodQty)}</td>
+                                <td className="px-3 py-2 text-right text-xs font-bold text-blue-700 sm:px-4"></td>
+                                <td className="hidden px-4 py-2 text-right text-xs font-bold text-blue-700 sm:table-cell">{formatCurrency(periodRevenue)}</td>
+                                <td className="w-8 px-2 py-2"></td>
                               </tr>
                               {group.logs.map((log, i) => (
                                 <tr key={`${log.orderId}-${log.productId}-${i}`} className="hover:bg-slate-50">
@@ -1625,7 +1645,7 @@ export default function MicaSheetManagment() {
                                 </tr>
                               ))}
                             </React.Fragment>
-                          ))}
+                          );})}
                         </tbody>
                       </table>
                     </div>
@@ -1643,10 +1663,16 @@ export default function MicaSheetManagment() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {dashboardConsolidatedByPeriod.map(group => (
+                        {dashboardConsolidatedByPeriod.map(group => {
+                          const periodQty = group.rows.reduce((s, r) => s + r.totalQty, 0);
+                          const periodRevenue = group.rows.reduce((s, r) => s + r.totalRevenue, 0);
+                          return (
                           <React.Fragment key={group.key}>
                             <tr className="bg-blue-50 border-l-4 border-l-blue-400">
-                              <td colSpan={5} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                              <td colSpan={2} className="px-3 py-2 text-sm font-bold text-blue-800 sm:px-4">{group.label}</td>
+                              <td className="px-3 py-2 text-right text-xs font-bold text-blue-700 sm:px-4">{formatNumber(periodQty)}</td>
+                              <td className="px-3 py-2 text-right text-xs font-bold text-blue-700 sm:px-4">{formatCurrency(periodRevenue)}</td>
+                              <td className="hidden px-4 py-2 text-right sm:table-cell"></td>
                             </tr>
                             {group.rows.map(row => (
                               <tr key={`${row.period}-${row.productId}`} className="hover:bg-slate-50">
@@ -1658,7 +1684,7 @@ export default function MicaSheetManagment() {
                               </tr>
                             ))}
                           </React.Fragment>
-                        ))}
+                          );})}
                       </tbody>
                     </table>
                   </div>
