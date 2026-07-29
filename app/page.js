@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   Loader2,
   LogOut,
+  MapPin,
   Package,
   PlusCircle,
   RefreshCw,
@@ -26,7 +27,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { addNewBuyer, addNewSku, appendOrderLog, fetchMasterData, getUsersList, registerNewUser, updateSkuPrice, updateUserStatus } from './actions';
+import { addNewBuyer, addNewSku, appendOrderLog, fetchMasterData, getBuyerDetails, getUsersList, registerNewUser, updateSkuPrice, updateUserStatus } from './actions';
 
 const allNavItems = [
   { id: 'entry', label: 'Data Entry', icon: PlusCircle, access: 'all' },
@@ -275,12 +276,19 @@ export default function MicaSheetManagment() {
   // Add Buyer form state
   const [showAddBuyer, setShowAddBuyer] = useState(false);
   const [newBuyerName, setNewBuyerName] = useState('');
+  const [newBuyerLocAlias, setNewBuyerLocAlias] = useState('');
   const [newBuyerPoc, setNewBuyerPoc] = useState('');
   const [newBuyerContact, setNewBuyerContact] = useState('');
   const [newBuyerEmail, setNewBuyerEmail] = useState('');
   const [newBuyerGstin, setNewBuyerGstin] = useState('');
   const [newBuyerAddress, setNewBuyerAddress] = useState('');
   const [addingNewBuyer, setAddingNewBuyer] = useState(false);
+  const [addToExistingBuyer, setAddToExistingBuyer] = useState('');
+
+  // Buyer Details Modal
+  const [buyerDetailModal, setBuyerDetailModal] = useState(false);
+  const [buyerDetailLocations, setBuyerDetailLocations] = useState([]);
+  const [buyerDetailLoading, setBuyerDetailLoading] = useState(false);
 
   const skuInputRef = useRef(null);
 
@@ -384,7 +392,7 @@ export default function MicaSheetManagment() {
 
   const filteredBuyerMasterRows = useMemo(() => {
     const q = normalize(buyerSearch);
-    return buyers.filter(b => !q || `${b.buyerId} ${b.companyName} ${b.poc} ${b.contactNumber}`.toLowerCase().includes(q));
+    return buyers.filter(b => !q || `${b.buyerId} ${b.companyName}`.toLowerCase().includes(q));
   }, [buyerSearch, buyers]);
 
   const filteredSkuAnalyticsSkus = useMemo(() => {
@@ -759,20 +767,36 @@ export default function MicaSheetManagment() {
   };
 
   const handleAddBuyer = async () => {
-    if (!newBuyerName.trim()) { setStatus({ type: 'error', message: 'Company name is required.' }); return; }
+    const companyName = addToExistingBuyer
+      ? (buyers.find(b => b.buyerId === addToExistingBuyer)?.companyName || '')
+      : newBuyerName.trim();
+    if (!companyName) { setStatus({ type: 'error', message: 'Company name is required.' }); return; }
     setAddingNewBuyer(true);
     setStatus(null);
-    const buyerId = generateNextBuyerId();
-    const result = await addNewBuyer(buyerId, newBuyerName.trim(), newBuyerPoc, newBuyerContact, newBuyerEmail, newBuyerGstin, newBuyerAddress);
+    const buyerId = addToExistingBuyer || generateNextBuyerId();
+    const result = await addNewBuyer(buyerId, companyName, newBuyerLocAlias, newBuyerPoc, newBuyerContact, newBuyerEmail, newBuyerGstin, newBuyerAddress);
     if (result.success) {
-      setBuyers(prev => [...prev, result.buyer]);
-      setNewBuyerName(''); setNewBuyerPoc(''); setNewBuyerContact(''); setNewBuyerEmail(''); setNewBuyerGstin(''); setNewBuyerAddress('');
+      if (result.isNewBuyer) setBuyers(prev => [...prev, result.buyer]);
+      setNewBuyerName(''); setNewBuyerLocAlias(''); setNewBuyerPoc(''); setNewBuyerContact(''); setNewBuyerEmail(''); setNewBuyerGstin(''); setNewBuyerAddress(''); setAddToExistingBuyer('');
       setShowAddBuyer(false);
-      setStatus({ type: 'success', message: `Buyer ${buyerId} added.` });
+      setStatus({ type: 'success', message: result.isNewBuyer ? `Buyer ${buyerId} added with location.` : `Location added to ${buyerId}.` });
     } else {
       setStatus({ type: 'error', message: result.error || 'Failed to add buyer.' });
     }
     setAddingNewBuyer(false);
+  };
+
+  const openBuyerDetailModal = async (buyerId) => {
+    setBuyerDetailModal(true);
+    setBuyerDetailLoading(true);
+    setBuyerDetailLocations([]);
+    const result = await getBuyerDetails(buyerId);
+    if (result.success) {
+      setBuyerDetailLocations(result.locations);
+    } else {
+      setStatus({ type: 'error', message: result.error || 'Failed to load buyer details.' });
+    }
+    setBuyerDetailLoading(false);
   };
 
   // Sorted macro data
@@ -1071,7 +1095,7 @@ export default function MicaSheetManagment() {
                         {filteredBuyers.length ? filteredBuyers.map(b => (
                           <button key={b.buyerId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { updateForm({ buyerId: b.buyerId, buyerSearch: b.companyName }); setDropdowns(p => ({ ...p, buyer: false })); }}
                             className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-left transition last:border-b-0 hover:bg-blue-50">
-                            <span><span className="block text-sm font-semibold text-slate-900">{b.companyName}</span><span className="text-xs text-slate-500">{b.poc || b.contactNumber}</span></span>
+                            <span className="block text-sm font-semibold text-slate-900">{b.companyName}</span>
                             <span className="text-xs font-bold text-blue-700">{b.buyerId}</span>
                           </button>
                         )) : <div className="px-4 py-3 text-sm text-slate-500">No buyers found</div>}
@@ -1262,7 +1286,7 @@ export default function MicaSheetManagment() {
                         {filteredAnalyticsBuyers.length ? filteredAnalyticsBuyers.map(b => (
                           <button key={b.buyerId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => selectAnalyticsBuyer(b)}
                             className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 text-left transition last:border-b-0 hover:bg-blue-50">
-                            <span><span className="block text-sm font-semibold text-slate-900">{b.companyName}</span><span className="text-xs text-slate-500">{b.poc || b.contactNumber}</span></span>
+                            <span className="block text-sm font-semibold text-slate-900">{b.companyName}</span>
                             <span className="text-xs font-bold text-blue-700">{b.buyerId}</span>
                           </button>
                         )) : <div className="px-4 py-3 text-sm text-slate-500">No buyers found</div>}
@@ -1305,12 +1329,11 @@ export default function MicaSheetManagment() {
                         </div>
                         <StatusBadge tone="blue">{selectedAnalyticsBuyer.buyerId}</StatusBadge>
                       </div>
-                      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                        <div><p className="font-semibold text-slate-500">POC</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.poc || '-'}</p></div>
-                        <div><p className="font-semibold text-slate-500">Contact</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.contactNumber || '-'}</p></div>
-                        <div><p className="font-semibold text-slate-500">GSTIN</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.gstin || '-'}</p></div>
-                        <div><p className="font-semibold text-slate-500">E-Mail</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.email || '-'}</p></div>
-                        <div className="sm:col-span-2"><p className="font-semibold text-slate-500">Address</p><p className="font-medium text-slate-900">{selectedAnalyticsBuyer.address || '-'}</p></div>
+                      <div className="mt-4">
+                        <button type="button" onClick={() => openBuyerDetailModal(selectedAnalyticsBuyer.buyerId)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100">
+                          <MapPin size={15} />View Detailed Profile
+                        </button>
                       </div>
                     </div>
                   ) : <EmptyState title="Select a buyer to view analytics" />}
@@ -1906,20 +1929,34 @@ export default function MicaSheetManagment() {
               {/* Add Buyer Form */}
               {showAddBuyer && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 shadow-sm space-y-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wide text-blue-800">New Buyer</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wide text-blue-800">New Buyer / Add Location</h4>
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <div>
-                      <FieldLabel>Buyer ID (auto)</FieldLabel>
-                      <input type="text" value={generateNextBuyerId()} disabled className="h-11 w-full rounded-lg border border-slate-200 bg-slate-100 px-4 text-sm font-bold text-slate-700" />
+                      <FieldLabel>Add to Existing Buyer?</FieldLabel>
+                      <select value={addToExistingBuyer} onChange={e => setAddToExistingBuyer(e.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
+                        <option value="">New Buyer</option>
+                        {buyers.map(b => <option key={b.buyerId} value={b.buyerId}>{b.buyerId} - {b.companyName}</option>)}
+                      </select>
                     </div>
+                    {!addToExistingBuyer && (
+                      <div>
+                        <FieldLabel>Buyer ID (auto)</FieldLabel>
+                        <input type="text" value={generateNextBuyerId()} disabled className="h-11 w-full rounded-lg border border-slate-200 bg-slate-100 px-4 text-sm font-bold text-slate-700" />
+                      </div>
+                    )}
                     <div>
                       <FieldLabel>Company Name *</FieldLabel>
-                      <input type="text" value={newBuyerName} onChange={e => setNewBuyerName(e.target.value)} placeholder="e.g. ABC Industries"
+                      <input type="text" value={addToExistingBuyer ? (buyers.find(b => b.buyerId === addToExistingBuyer)?.companyName || '') : newBuyerName} onChange={e => { if (!addToExistingBuyer) setNewBuyerName(e.target.value); }} disabled={Boolean(addToExistingBuyer)} placeholder="e.g. ABC Industries"
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100" />
+                    </div>
+                    <div>
+                      <FieldLabel>Location Alias *</FieldLabel>
+                      <input type="text" value={newBuyerLocAlias} onChange={e => setNewBuyerLocAlias(e.target.value)} placeholder="e.g. Main Office, Warehouse"
                         className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
                     </div>
                     <div>
-                      <FieldLabel>POC (Person of Contact)</FieldLabel>
-                      <input type="text" value={newBuyerPoc} onChange={e => setNewBuyerPoc(e.target.value)} placeholder="Optional"
+                      <FieldLabel>POC Name</FieldLabel>
+                      <input type="text" value={newBuyerPoc} onChange={e => setNewBuyerPoc(e.target.value)} placeholder="Person of Contact"
                         className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
                     </div>
                     <div>
@@ -1939,15 +1976,15 @@ export default function MicaSheetManagment() {
                     </div>
                     <div className="sm:col-span-2 lg:col-span-3">
                       <FieldLabel>Address</FieldLabel>
-                      <input type="text" value={newBuyerAddress} onChange={e => setNewBuyerAddress(e.target.value)} placeholder="Optional"
+                      <input type="text" value={newBuyerAddress} onChange={e => setNewBuyerAddress(e.target.value)} placeholder="Full address"
                         className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button type="button" onClick={handleAddBuyer} disabled={addingNewBuyer || !newBuyerName.trim()} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">
+                    <button type="button" onClick={handleAddBuyer} disabled={addingNewBuyer || (!addToExistingBuyer && !newBuyerName.trim())} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed">
                       {addingNewBuyer ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}Save
                     </button>
-                    <button type="button" onClick={() => { setShowAddBuyer(false); setNewBuyerName(''); setNewBuyerPoc(''); setNewBuyerContact(''); setNewBuyerEmail(''); setNewBuyerGstin(''); setNewBuyerAddress(''); }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100">Cancel</button>
+                    <button type="button" onClick={() => { setShowAddBuyer(false); setNewBuyerName(''); setNewBuyerLocAlias(''); setNewBuyerPoc(''); setNewBuyerContact(''); setNewBuyerEmail(''); setNewBuyerGstin(''); setNewBuyerAddress(''); setAddToExistingBuyer(''); }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100">Cancel</button>
                   </div>
                 </div>
               )}
@@ -1960,10 +1997,7 @@ export default function MicaSheetManagment() {
                       <tr>
                         <th className="px-3 py-2.5 sm:px-4 sm:py-3">Buyer ID</th>
                         <th className="px-3 py-2.5 sm:px-4 sm:py-3">Company</th>
-                        <th className="hidden px-4 py-3 sm:table-cell">POC</th>
-                        <th className="px-3 py-2.5 sm:px-4 sm:py-3">Contact</th>
-                        <th className="hidden px-4 py-3 md:table-cell">E-Mail</th>
-                        <th className="hidden px-4 py-3 md:table-cell">GSTIN</th>
+                        <th className="px-3 py-2.5 sm:px-4 sm:py-3 text-right">Details</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1971,10 +2005,11 @@ export default function MicaSheetManagment() {
                         <tr key={b.buyerId} className="hover:bg-slate-50">
                           <td className="whitespace-nowrap px-3 py-2.5 font-bold text-slate-900 sm:px-4 sm:py-3">{b.buyerId}</td>
                           <td className="px-3 py-2.5 font-semibold text-slate-900 sm:px-4 sm:py-3">{b.companyName}</td>
-                          <td className="hidden px-4 py-3 sm:table-cell">{b.poc}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5 sm:px-4 sm:py-3">{b.contactNumber}</td>
-                          <td className="hidden whitespace-nowrap px-4 py-3 md:table-cell">{b.email}</td>
-                          <td className="hidden whitespace-nowrap px-4 py-3 md:table-cell">{b.gstin}</td>
+                          <td className="px-3 py-2.5 sm:px-4 sm:py-3 text-right">
+                            <button type="button" onClick={() => openBuyerDetailModal(b.buyerId)} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 transition">
+                              <MapPin size={12} />Locations
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -2078,6 +2113,47 @@ export default function MicaSheetManagment() {
       </main>
 
       {visibleNote && <NotePopup note={visibleNote} onClose={() => setVisibleNote(null)} />}
+
+      {/* Buyer Detail Modal */}
+      {buyerDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-16" onClick={() => setBuyerDetailModal(false)}>
+          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Buyer Locations & Contacts</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{selectedAnalyticsBuyer?.companyName || ''}</p>
+              </div>
+              <button type="button" onClick={() => setBuyerDetailModal(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"><X size={18} /></button>
+            </div>
+            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+              {buyerDetailLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="animate-spin text-blue-600" size={24} />
+                </div>
+              ) : buyerDetailLocations.length ? (
+                buyerDetailLocations.map(loc => (
+                  <div key={loc.locationId} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <MapPin size={14} className="text-blue-600" />
+                      <h4 className="text-sm font-bold text-slate-900">{loc.locationAlias || 'Unnamed Location'}</h4>
+                      <span className="ml-auto text-xs text-slate-400">{loc.locationId}</span>
+                    </div>
+                    <div className="grid gap-2 text-sm sm:grid-cols-2">
+                      <div><p className="text-xs font-semibold text-slate-500">POC Name</p><p className="font-medium text-slate-900">{loc.pocName || '-'}</p></div>
+                      <div><p className="text-xs font-semibold text-slate-500">Contact</p><p className="font-medium text-slate-900">{loc.contactNumber || '-'}</p></div>
+                      <div><p className="text-xs font-semibold text-slate-500">Email</p><p className="font-medium text-slate-900">{loc.email || '-'}</p></div>
+                      <div><p className="text-xs font-semibold text-slate-500">GSTIN</p><p className="font-medium text-slate-900">{loc.gstin || '-'}</p></div>
+                      <div className="sm:col-span-2"><p className="text-xs font-semibold text-slate-500">Address</p><p className="font-medium text-slate-900">{loc.address || '-'}</p></div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-sm text-slate-500">No locations found for this buyer.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

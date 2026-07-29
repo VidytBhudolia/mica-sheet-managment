@@ -28,7 +28,7 @@ export async function fetchMasterData() {
       }),
       sheets.spreadsheets.values.get({
         spreadsheetId: SPREADSHEET_ID,
-        range: 'Buyer!A2:G',
+        range: 'Buyer!A2:B',
       }),
       sheets.spreadsheets.values.get({
         spreadsheetId: SPREADSHEET_ID,
@@ -45,11 +45,6 @@ export async function fetchMasterData() {
     const buyers = (buyerRes.data.values || []).map(row => ({
       buyerId: row[0] || '',
       companyName: row[1] || '',
-      poc: row[2] || '',
-      contactNumber: row[3] || '',
-      email: row[4] || '',
-      gstin: row[5] || '',
-      address: row[6] || '',
     }));
 
     const logs = (storageRes.data.values || []).map(row => ({
@@ -66,6 +61,36 @@ export async function fetchMasterData() {
   } catch (error) {
     console.error('Failed to fetch Google Sheets data:', error);
     return { skus: [], buyers: [], logs: [], error: 'Unable to load Google Sheets data.' };
+  }
+}
+
+export async function getBuyerDetails(buyerId) {
+  try {
+    if (!buyerId) return { success: false, locations: [], error: 'Buyer ID is required.' };
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Buyer-Add!A2:H',
+    });
+
+    const normalizedId = String(buyerId).trim().toUpperCase();
+    const locations = (res.data.values || [])
+      .filter(row => String(row[1] || '').trim().toUpperCase() === normalizedId)
+      .map(row => ({
+        locationId: row[0] || '',
+        buyerId: row[1] || '',
+        locationAlias: row[2] || '',
+        pocName: row[3] || '',
+        contactNumber: row[4] || '',
+        email: row[5] || '',
+        gstin: row[6] || '',
+        address: row[7] || '',
+      }));
+
+    return { success: true, locations };
+  } catch (error) {
+    console.error('Failed to fetch buyer details:', error);
+    return { success: false, locations: [], error: 'Unable to load buyer details.' };
   }
 }
 
@@ -273,34 +298,58 @@ export async function addNewSku(productId, description) {
   }
 }
 
-export async function addNewBuyer(buyerId, companyName, poc, contactNumber, email, gstin, address) {
+export async function addNewBuyer(buyerId, companyName, locationAlias, pocName, contactNumber, email, gstin, address) {
   try {
     if (!buyerId || !companyName) {
       return { success: false, error: 'Buyer ID and Company Name are required.' };
     }
 
-    // Check if buyerId already exists
+    // Check if buyerId already exists in Buyer sheet
     const buyerRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: 'Buyer!A2:A',
     });
     const existing = (buyerRes.data.values || []).map(row => String(row[0] || '').trim().toUpperCase());
-    if (existing.includes(buyerId.trim().toUpperCase())) {
-      return { success: false, error: 'This Buyer ID already exists.' };
+    const isNewBuyer = !existing.includes(buyerId.trim().toUpperCase());
+
+    // If new buyer, append to Buyer (parent) sheet
+    if (isNewBuyer) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Buyer!A:B',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: {
+          values: [[buyerId.trim(), companyName.trim()]],
+        },
+      });
     }
 
-    // Append: Buyer ID, Company, POC, Contact, Email, GSTIN, Address
+    // Generate Location ID
+    const locRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Buyer-Add!A2:A',
+    });
+    const locCount = (locRes.data.values || []).length;
+    const locationId = `LOC-${String(locCount + 1).padStart(3, '0')}`;
+
+    // Append location to Buyer-Add (child) sheet
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'Buyer!A:G',
+      range: 'Buyer-Add!A:H',
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: {
-        values: [[buyerId.trim(), companyName.trim(), poc || '', contactNumber || '', email || '', gstin || '', address || '']],
+        values: [[locationId, buyerId.trim(), locationAlias || '', pocName || '', contactNumber || '', email || '', gstin || '', address || '']],
       },
     });
 
-    return { success: true, buyer: { buyerId: buyerId.trim(), companyName: companyName.trim(), poc: poc || '', contactNumber: contactNumber || '', email: email || '', gstin: gstin || '', address: address || '' } };
+    return {
+      success: true,
+      isNewBuyer,
+      buyer: { buyerId: buyerId.trim(), companyName: companyName.trim() },
+      location: { locationId, buyerId: buyerId.trim(), locationAlias: locationAlias || '', pocName: pocName || '', contactNumber: contactNumber || '', email: email || '', gstin: gstin || '', address: address || '' },
+    };
   } catch (error) {
     console.error('Failed to add buyer:', error);
     return { success: false, error: 'Unable to add buyer.' };
