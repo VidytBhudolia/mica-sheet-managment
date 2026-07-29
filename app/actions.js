@@ -264,21 +264,21 @@ export async function registerNewUser(email, name, phone) {
   }
 }
 
-export async function addNewSku(productId, description) {
+export async function addNewSku(description) {
   try {
-    if (!productId || !description) {
-      return { success: false, error: 'Product ID and description are required.' };
+    if (!description) {
+      return { success: false, error: 'SKU description is required.' };
     }
 
-    // Check if productId already exists
+    // Read existing IDs to generate next
     const skuRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: 'SKU!A2:A',
     });
-    const existing = (skuRes.data.values || []).map(row => String(row[0] || '').trim().toUpperCase());
-    if (existing.includes(productId.trim().toUpperCase())) {
-      return { success: false, error: 'This Product ID already exists.' };
-    }
+    const existing = (skuRes.data.values || []).map(row => String(row[0] || '').trim());
+    const nums = existing.filter(id => /^PROD-\d+$/.test(id)).map(id => Number(id.replace('PROD-', '')));
+    const maxNum = nums.length ? Math.max(...nums) : 0;
+    const productId = `PROD-${String(maxNum + 1).padStart(3, '0')}`;
 
     // Append: Product ID, Description, Last Price (0)
     await sheets.spreadsheets.values.append({
@@ -287,11 +287,11 @@ export async function addNewSku(productId, description) {
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: {
-        values: [[productId.trim(), description.trim(), 0]],
+        values: [[productId, description.trim(), 0]],
       },
     });
 
-    return { success: true, sku: { productId: productId.trim(), description: description.trim(), defaultPrice: 0 } };
+    return { success: true, sku: { productId, description: description.trim(), defaultPrice: 0 } };
   } catch (error) {
     console.error('Failed to add SKU:', error);
     return { success: false, error: 'Unable to add SKU.' };
@@ -300,17 +300,29 @@ export async function addNewSku(productId, description) {
 
 export async function addNewBuyer(buyerId, companyName, locationAlias, pocName, contactNumber, email, gstin, address) {
   try {
-    if (!buyerId || !companyName) {
-      return { success: false, error: 'Buyer ID and Company Name are required.' };
+    if (!companyName) {
+      return { success: false, error: 'Company Name is required.' };
     }
 
-    // Check if buyerId already exists in Buyer sheet
+    // Read existing buyer IDs
     const buyerRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: 'Buyer!A2:A',
     });
-    const existing = (buyerRes.data.values || []).map(row => String(row[0] || '').trim().toUpperCase());
-    const isNewBuyer = !existing.includes(buyerId.trim().toUpperCase());
+    const existing = (buyerRes.data.values || []).map(row => String(row[0] || '').trim());
+
+    let finalBuyerId = buyerId;
+    let isNewBuyer = false;
+
+    if (!buyerId) {
+      // Auto-generate next Buyer ID
+      const nums = existing.filter(id => /^B-\d+$/.test(id)).map(id => Number(id.replace('B-', '')));
+      const maxNum = nums.length ? Math.max(...nums) : 0;
+      finalBuyerId = `B-${String(maxNum + 1).padStart(3, '0')}`;
+      isNewBuyer = true;
+    } else {
+      isNewBuyer = !existing.map(id => id.toUpperCase()).includes(buyerId.trim().toUpperCase());
+    }
 
     // If new buyer, append to Buyer (parent) sheet
     if (isNewBuyer) {
@@ -320,18 +332,19 @@ export async function addNewBuyer(buyerId, companyName, locationAlias, pocName, 
         valueInputOption: 'USER_ENTERED',
         insertDataOption: 'INSERT_ROWS',
         requestBody: {
-          values: [[buyerId.trim(), companyName.trim()]],
+          values: [[finalBuyerId, companyName.trim()]],
         },
       });
     }
 
-    // Generate Location ID
+    // Generate Location ID from max existing
     const locRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: 'Buyer-Add!A2:A',
     });
-    const locCount = (locRes.data.values || []).length;
-    const locationId = `LOC-${String(locCount + 1).padStart(3, '0')}`;
+    const locIds = (locRes.data.values || []).map(row => String(row[0] || '')).filter(id => /^LOC-\d+$/.test(id)).map(id => Number(id.replace('LOC-', '')));
+    const maxLoc = locIds.length ? Math.max(...locIds) : 0;
+    const locationId = `LOC-${String(maxLoc + 1).padStart(4, '0')}`;
 
     // Append location to Buyer-Add (child) sheet
     await sheets.spreadsheets.values.append({
@@ -340,15 +353,15 @@ export async function addNewBuyer(buyerId, companyName, locationAlias, pocName, 
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: {
-        values: [[locationId, buyerId.trim(), locationAlias || '', pocName || '', contactNumber || '', email || '', gstin || '', address || '']],
+        values: [[locationId, finalBuyerId, locationAlias || '', pocName || '', contactNumber || '', email || '', gstin || '', address || '']],
       },
     });
 
     return {
       success: true,
       isNewBuyer,
-      buyer: { buyerId: buyerId.trim(), companyName: companyName.trim() },
-      location: { locationId, buyerId: buyerId.trim(), locationAlias: locationAlias || '', pocName: pocName || '', contactNumber: contactNumber || '', email: email || '', gstin: gstin || '', address: address || '' },
+      buyer: { buyerId: finalBuyerId, companyName: companyName.trim() },
+      location: { locationId, buyerId: finalBuyerId, locationAlias: locationAlias || '', pocName: pocName || '', contactNumber: contactNumber || '', email: email || '', gstin: gstin || '', address: address || '' },
     };
   } catch (error) {
     console.error('Failed to add buyer:', error);

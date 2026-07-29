@@ -738,23 +738,20 @@ export default function MicaSheetManagment() {
   const generateNextSkuId = () => {
     const existing = skus.map(s => s.productId).filter(id => /^PROD-\d+$/.test(id)).map(id => Number(id.replace('PROD-', '')));
     const maxNum = existing.length ? Math.max(...existing) : 0;
-    const next = maxNum + 1;
-    return `PROD-${String(next).padStart(next > 999 ? 4 : 3, '0')}`;
+    return `PROD-${String(maxNum + 1).padStart(3, '0')}`;
   };
 
   const generateNextBuyerId = () => {
     const existing = buyers.map(b => b.buyerId).filter(id => /^B-\d+$/.test(id)).map(id => Number(id.replace('B-', '')));
     const maxNum = existing.length ? Math.max(...existing) : 0;
-    const next = maxNum + 1;
-    return `B-${String(next).padStart(next > 999 ? 4 : 3, '0')}`;
+    return `B-${String(maxNum + 1).padStart(3, '0')}`;
   };
 
   const handleAddSku = async () => {
     if (!newSkuDescription.trim()) { setStatus({ type: 'error', message: 'SKU description is required.' }); return; }
     setAddingNewSku(true);
     setStatus(null);
-    const productId = generateNextSkuId();
-    const result = await addNewSku(productId, newSkuDescription.trim());
+    const result = await addNewSku(newSkuDescription.trim());
     if (result.success) {
       setSkus(prev => [...prev, result.sku]);
       setNewSkuDescription('');
@@ -773,13 +770,13 @@ export default function MicaSheetManagment() {
     if (!companyName) { setStatus({ type: 'error', message: 'Company name is required.' }); return; }
     setAddingNewBuyer(true);
     setStatus(null);
-    const buyerId = addToExistingBuyer || generateNextBuyerId();
+    const buyerId = addToExistingBuyer || '';
     const result = await addNewBuyer(buyerId, companyName, newBuyerLocAlias, newBuyerPoc, newBuyerContact, newBuyerEmail, newBuyerGstin, newBuyerAddress);
     if (result.success) {
       if (result.isNewBuyer) setBuyers(prev => [...prev, result.buyer]);
       setNewBuyerName(''); setNewBuyerLocAlias(''); setNewBuyerPoc(''); setNewBuyerContact(''); setNewBuyerEmail(''); setNewBuyerGstin(''); setNewBuyerAddress(''); setAddToExistingBuyer('');
       setShowAddBuyer(false);
-      setStatus({ type: 'success', message: result.isNewBuyer ? `Buyer ${buyerId} added with location.` : `Location added to ${buyerId}.` });
+      setStatus({ type: 'success', message: result.isNewBuyer ? `Buyer ${result.buyer.buyerId} added with location.` : `Location added to ${addToExistingBuyer}.` });
     } else {
       setStatus({ type: 'error', message: result.error || 'Failed to add buyer.' });
     }
@@ -1997,19 +1994,13 @@ export default function MicaSheetManagment() {
                       <tr>
                         <th className="px-3 py-2.5 sm:px-4 sm:py-3">Buyer ID</th>
                         <th className="px-3 py-2.5 sm:px-4 sm:py-3">Company</th>
-                        <th className="px-3 py-2.5 sm:px-4 sm:py-3 text-right">Details</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredBuyerMasterRows.map(b => (
-                        <tr key={b.buyerId} className="hover:bg-slate-50">
+                        <tr key={b.buyerId} onClick={() => openBuyerDetailModal(b.buyerId)} className="hover:bg-blue-50 cursor-pointer transition">
                           <td className="whitespace-nowrap px-3 py-2.5 font-bold text-slate-900 sm:px-4 sm:py-3">{b.buyerId}</td>
                           <td className="px-3 py-2.5 font-semibold text-slate-900 sm:px-4 sm:py-3">{b.companyName}</td>
-                          <td className="px-3 py-2.5 sm:px-4 sm:py-3 text-right">
-                            <button type="button" onClick={() => openBuyerDetailModal(b.buyerId)} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 transition">
-                              <MapPin size={12} />Locations
-                            </button>
-                          </td>
                         </tr>
                       ))}
                     </tbody>
